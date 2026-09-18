@@ -10,6 +10,7 @@ public static class BuildScript
     {
         PlayerSettings.productName = "围棋";
         PlayerSettings.companyName = "luyus";
+        AssetDatabase.Refresh();
 
         // 工程靠运行时代码自举，场景本身为空；但构建必须包含一个已保存的场景文件
         const string sceneDir = "Assets/Scenes";
