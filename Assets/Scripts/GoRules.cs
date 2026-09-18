@@ -440,6 +440,65 @@ public class GoRules
         };
     }
 
+    public string ExportMoveLogCsv() => MoveLogToCsv();
+
+    public int CountLogMoves(string csv)
+    {
+        if (string.IsNullOrEmpty(csv)) return 0;
+        int n = 0;
+        foreach (string tok in csv.Split('|'))
+            if (!string.IsNullOrEmpty(tok)) n++;
+        return n;
+    }
+
+    // 从空盘（或已布让子）按棋谱复盘到第 ply 手，过程中不进入数子。
+    public bool ReplayToPly(string csv, int ply)
+    {
+        var seq = new List<MoveRec>();
+        if (!string.IsNullOrEmpty(csv))
+        {
+            foreach (string tok in csv.Split('|'))
+            {
+                if (string.IsNullOrEmpty(tok)) continue;
+                var p = tok.Split(',');
+                if (p.Length < 3) continue;
+                if (!int.TryParse(p[0], out int x) || !int.TryParse(p[1], out int y) || !int.TryParse(p[2], out int c))
+                    continue;
+                seq.Add(new MoveRec { x = x, y = y, c = c });
+            }
+        }
+        if (ply < 0) ply = 0;
+        if (ply > seq.Count) ply = seq.Count;
+
+        moveLog.Clear();
+        history.Clear();
+        Phase = GoPhase.Play;
+        Result = null;
+        Dead.Clear();
+
+        for (int i = 0; i < ply; i++)
+        {
+            var m = seq[i];
+            Turn = m.c == WHITE ? WHITE : BLACK;
+            if (m.x < 0)
+            {
+                history.Add(new Snapshot
+                {
+                    board = Board, moveAt = (int[])MoveAt.Clone(), turn = Turn,
+                    capB = Captures[BLACK], capW = Captures[WHITE],
+                    passes = Passes, moveCount = MoveCount, lastMove = LastMove, hashAfter = -1
+                });
+                Passes++;
+                LastMove = -1;
+                moveLog.Add(new MoveRec { x = -1, y = -1, c = Turn });
+                Turn = Opp(Turn);
+                continue;
+            }
+            if (!Play(m.x, m.y, out _)) return false;
+        }
+        return true;
+    }
+
     string MoveLogToCsv()
     {
         if (moveLog.Count == 0) return "";

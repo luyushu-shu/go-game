@@ -12,6 +12,12 @@ public class GoGame : MonoBehaviour
     int boardSize = 19;
     bool vsAI = false;
     bool inStudyMode = false;
+    bool reviewingKifu = false;
+    KifuRecord reviewRec;
+    string reviewLogCsv = "";
+    int reviewPly, reviewTotal;
+    GameObject btnUndo, btnPass, btnResign, btnClear, btnScore, btnReviewPrev, btnReviewNext, btnReviewEnd;
+    Text homeBtnLabel;
     bool aiBusy = false;
     bool inMenu = true;
 
@@ -43,6 +49,13 @@ public class GoGame : MonoBehaviour
     ScrollRect moveLogScroll;
     GameObject scorePopup;
     Text scorePopupTitle;
+    GameObject kifuForm;
+    InputField kifuTitle, kifuBlack, kifuWhite, kifuBlackRank, kifuWhiteRank, kifuDesc;
+    Text kifuTimeText, kifuResultText;
+    string lastResultLine = "";
+    System.DateTime gameStartedAt;
+    bool kifuDraftReady;
+    string draftTitle, draftBlack, draftWhite, draftBlackRank, draftWhiteRank, draftDesc;
     GameObject studyBoardUi, studyLabelRoot;
     Text studyTerritoryText, studyBtnMovesText, studyBtnCoordsText, studyBtnTerrText;
     Text[] studyColBot, studyColTop, studyRowLeft, studyRowRight;
@@ -52,7 +65,10 @@ public class GoGame : MonoBehaviour
     Coroutine msgCo;
 
     // 主界面
-    GameObject menuCanvas, mainPanel, aiSetupPanel;
+    GameObject menuCanvas, mainPanel, aiSetupPanel, historyPanel, historyDetail;
+    InputField historySearch;
+    Transform historyListContent;
+    Text historyDetailText;
     List<Button> optSize, optColor;
     Text komiValText, handiValText;
 
@@ -156,7 +172,12 @@ public class GoGame : MonoBehaviour
     {
         BuildBoard();
         inMenu = false;
+        reviewingKifu = false;
         menuCanvas.SetActive(false);
+        gameStartedAt = System.DateTime.Now;
+        lastResultLine = "";
+        kifuDraftReady = false;
+        if (kifuForm != null) kifuForm.SetActive(false);
         Refresh();
     }
 
@@ -200,7 +221,7 @@ public class GoGame : MonoBehaviour
 
     void SaveStudyProgress()
     {
-        if (!inStudyMode) return;
+        if (!inStudyMode || reviewingKifu) return;
         var data = rules.ExportState();
         data.phase = (int)GoPhase.Play;
         data.passes = 0;
@@ -216,6 +237,16 @@ public class GoGame : MonoBehaviour
     void ReturnToMainMenu()
     {
         HideScorePopup();
+        if (reviewingKifu)
+        {
+            reviewingKifu = false;
+            inStudyMode = false;
+            vsAI = false;
+            aiBusy = false;
+            StopAllCoroutines();
+            ShowHistoryPanel();
+            return;
+        }
         if (inStudyMode) SaveStudyProgress();
         inStudyMode = false;
         vsAI = false;
@@ -227,9 +258,13 @@ public class GoGame : MonoBehaviour
     void ShowMainMenu()
     {
         inMenu = true;
+        reviewingKifu = false;
         menuCanvas.SetActive(true);
         mainPanel.SetActive(true);
         aiSetupPanel.SetActive(false);
+        if (historyPanel != null) historyPanel.SetActive(false);
+        if (historyDetail != null) historyDetail.SetActive(false);
+        if (kifuForm != null) kifuForm.SetActive(false);
         if (ghostSr != null) ghostSr.enabled = false;
         RefreshStudyVisuals();
     }
@@ -237,8 +272,23 @@ public class GoGame : MonoBehaviour
     void ShowAiSetup()
     {
         mainPanel.SetActive(false);
+        if (historyPanel != null) historyPanel.SetActive(false);
         aiSetupPanel.SetActive(true);
         SyncAiSetup();
+    }
+
+    void ShowHistoryPanel()
+    {
+        inMenu = true;
+        menuCanvas.SetActive(true);
+        mainPanel.SetActive(false);
+        aiSetupPanel.SetActive(false);
+        historyPanel.SetActive(true);
+        if (historyDetail != null) historyDetail.SetActive(false);
+        if (historySearch != null) historySearch.text = "";
+        RebuildHistoryList(historySearch != null ? historySearch.text : "");
+        if (ghostSr != null) ghostSr.enabled = false;
+        RefreshStudyVisuals();
     }
 
     static void QuitGame()
@@ -252,7 +302,7 @@ public class GoGame : MonoBehaviour
 
     void HumanPlay(int x, int y)
     {
-        if (aiBusy || inMenu || rules.Result != null || rules.Phase != GoPhase.Play) return;
+        if (reviewingKifu || aiBusy || inMenu || rules.Result != null || rules.Phase != GoPhase.Play) return;
         if (vsAI && rules.Turn != humanColor) return;
         if (!rules.Play(x, y, out string msg)) { Flash(msg); return; }
         AfterMove();
@@ -260,6 +310,7 @@ public class GoGame : MonoBehaviour
 
     void HumanPass()
     {
+        if (reviewingKifu) { ReviewSeek(reviewPly + 1); return; }
         if (aiBusy || inMenu || rules.Result != null || rules.Phase != GoPhase.Play) return;
         if (vsAI && rules.Turn != humanColor) return;
         rules.Pass();
@@ -300,6 +351,7 @@ public class GoGame : MonoBehaviour
 
     void Undo()
     {
+        if (reviewingKifu) { ReviewSeek(reviewPly - 1); return; }
         if (aiBusy || inMenu) return;
         int steps = vsAI ? 2 : 1;
         if (!rules.Undo(steps)) { Flash("没有可悔的棋"); return; }
@@ -335,7 +387,7 @@ public class GoGame : MonoBehaviour
                       && Mathf.Abs(w.x - x) < 0.48f && Mathf.Abs(w.y - y) < 0.48f;
         bool overUI = EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
 
-        bool canHover = inside && !overUI && rules.Phase == GoPhase.Play && rules.Result == null
+        bool canHover = !reviewingKifu && inside && !overUI && rules.Phase == GoPhase.Play && rules.Result == null
                         && !aiBusy && rules.Board[rules.Idx(x, y)] == GoRules.EMPTY
                         && (!vsAI || rules.Turn == humanColor);
         ghostSr.enabled = canHover;
@@ -345,7 +397,7 @@ public class GoGame : MonoBehaviour
             ghostSr.transform.position = new Vector3(x, y, 0f);
         }
 
-        if (inside && !overUI && Input.GetMouseButtonDown(0))
+        if (inside && !overUI && Input.GetMouseButtonDown(0) && !reviewingKifu)
         {
             if (rules.Phase == GoPhase.Scoring) { rules.ToggleDead(x, y); Refresh(); }
             else HumanPlay(x, y);
@@ -628,14 +680,22 @@ public class GoGame : MonoBehaviour
         turnText = MakeText(pt, "", 15, Ink, TextAnchor.MiddleCenter);
         msgText = MakeText(pt, "", 15, Accent, TextAnchor.MiddleCenter);
 
-        MakeButton(pt, "悔棋", 42f, Undo);
-        MakeButton(pt, "停一手", 42f, HumanPass);
-        MakeButton(pt, "认输", 42f, HumanResign);
-        MakeButton(pt, "清空棋盘", 42f, ClearBoardKeepPlaying);
-        MakeButton(pt, "数目", 42f, OpenScorePopup);
-        MakeButton(pt, "返回主界面", 42f, ReturnToMainMenu);
+        btnUndo = MakeButton(pt, "悔棋", 42f, Undo).gameObject;
+        btnPass = MakeButton(pt, "停一手", 42f, HumanPass).gameObject;
+        btnResign = MakeButton(pt, "认输", 42f, HumanResign).gameObject;
+        btnClear = MakeButton(pt, "清空棋盘", 42f, ClearBoardKeepPlaying).gameObject;
+        btnScore = MakeButton(pt, "数目", 42f, OpenScorePopup).gameObject;
+        btnReviewPrev = MakeButton(pt, "上一手", 42f, () => ReviewSeek(reviewPly - 1)).gameObject;
+        btnReviewNext = MakeButton(pt, "下一手", 42f, () => ReviewSeek(reviewPly + 1)).gameObject;
+        btnReviewEnd = MakeButton(pt, "终局", 42f, () => ReviewSeek(reviewTotal)).gameObject;
+        btnReviewPrev.SetActive(false);
+        btnReviewNext.SetActive(false);
+        btnReviewEnd.SetActive(false);
+        var home = MakeButton(pt, "返回主界面", 42f, ReturnToMainMenu);
+        homeBtnLabel = home.GetComponentInChildren<Text>();
 
         BuildScorePopup(canvas.transform);
+        BuildKifuForm(canvas.transform);
         BuildStudyBoardUi(canvas.transform);
     }
 
@@ -729,6 +789,11 @@ public class GoGame : MonoBehaviour
     void RefreshMoveLog()
     {
         if (moveLogText == null || rules == null) return;
+        if (reviewingKifu)
+        {
+            RefreshReviewMoveLog();
+            return;
+        }
         int n = rules.LoggedMoveCount;
         if (n == 0)
         {
@@ -752,6 +817,7 @@ public class GoGame : MonoBehaviour
 
     void ClearBoardKeepPlaying()
     {
+        if (reviewingKifu) return;
         HideScorePopup();
         WipeBoardState();
         BuildBoard();
@@ -774,7 +840,7 @@ public class GoGame : MonoBehaviour
 
     void HumanResign()
     {
-        if (aiBusy || inMenu || rules.Result != null) return;
+        if (reviewingKifu || aiBusy || inMenu || rules.Result != null) return;
         if (vsAI) rules.ResignBy(humanColor);
         else rules.Resign();
         Refresh();
@@ -783,7 +849,7 @@ public class GoGame : MonoBehaviour
 
     void OpenScorePopup()
     {
-        if (scorePopup == null || rules == null) return;
+        if (reviewingKifu || scorePopup == null || rules == null) return;
         rules.EstimateSituation(out float bs, out float ws,
             out _, out _, out _, out _, out _, out _, out _);
         float diff = bs - ws;
@@ -797,13 +863,16 @@ public class GoGame : MonoBehaviour
     void ShowResultPopup(string title)
     {
         if (scorePopup == null) return;
+        lastResultLine = title;
         scorePopupTitle.text = title;
         scorePopup.SetActive(true);
+        if (kifuForm != null) kifuForm.SetActive(false);
     }
 
     void HideScorePopup()
     {
         if (scorePopup != null) scorePopup.SetActive(false);
+        if (kifuForm != null) kifuForm.SetActive(false);
     }
 
     void ScorePopupReturnHome()
@@ -823,7 +892,136 @@ public class GoGame : MonoBehaviour
 
     void ScorePopupSaveKifu()
     {
-        Flash("保存棋谱功能稍后接入");
+        if (kifuForm == null) return;
+        FillKifuForm();
+        scorePopup.SetActive(false);
+        kifuForm.SetActive(true);
+    }
+
+    void FillKifuForm()
+    {
+        if (!kifuDraftReady)
+        {
+            draftTitle = inStudyMode ? "打谱" : "人机对弈";
+            if (inStudyMode)
+            {
+                draftBlack = "黑";
+                draftWhite = "白";
+            }
+            else
+            {
+                draftBlack = humanColor == GoRules.BLACK ? "你" : "AI";
+                draftWhite = humanColor == GoRules.WHITE ? "你" : "AI";
+            }
+            draftBlackRank = "";
+            draftWhiteRank = "";
+            draftDesc = "";
+            kifuDraftReady = true;
+        }
+        kifuTitle.text = draftTitle ?? "";
+        kifuBlack.text = draftBlack ?? "";
+        kifuWhite.text = draftWhite ?? "";
+        kifuBlackRank.text = draftBlackRank ?? "";
+        kifuWhiteRank.text = draftWhiteRank ?? "";
+        kifuDesc.text = draftDesc ?? "";
+        kifuTimeText.text = gameStartedAt == default
+            ? System.DateTime.Now.ToString("yyyy-MM-dd HH:mm")
+            : gameStartedAt.ToString("yyyy-MM-dd HH:mm");
+        kifuResultText.text = string.IsNullOrEmpty(lastResultLine)
+            ? (rules != null && !string.IsNullOrEmpty(rules.Result) ? rules.Result : "未终局")
+            : lastResultLine;
+    }
+
+    void CaptureKifuDraft()
+    {
+        draftTitle = kifuTitle.text;
+        draftBlack = kifuBlack.text;
+        draftWhite = kifuWhite.text;
+        draftBlackRank = kifuBlackRank.text;
+        draftWhiteRank = kifuWhiteRank.text;
+        draftDesc = kifuDesc.text;
+        kifuDraftReady = true;
+    }
+
+    void KifuFormBack()
+    {
+        CaptureKifuDraft();
+        kifuForm.SetActive(false);
+        if (scorePopup != null) scorePopup.SetActive(true);
+    }
+
+    void KifuFormConfirm()
+    {
+        CaptureKifuDraft();
+        var rec = new KifuRecord
+        {
+            title = string.IsNullOrWhiteSpace(draftTitle) ? "未命名对局" : draftTitle.Trim(),
+            blackName = (draftBlack ?? "").Trim(),
+            whiteName = (draftWhite ?? "").Trim(),
+            blackRank = (draftBlackRank ?? "").Trim(),
+            whiteRank = (draftWhiteRank ?? "").Trim(),
+            description = (draftDesc ?? "").Trim(),
+            playedAt = kifuTimeText.text,
+            result = kifuResultText.text,
+            boardSize = boardSize,
+            mode = inStudyMode ? "打谱" : "人机对弈",
+            moveCount = rules != null ? rules.LoggedMoveCount : 0,
+            komi = rules != null ? rules.Komi : komi,
+            handicap = inStudyMode ? 0 : handicap,
+            moveLogCsv = rules != null ? rules.ExportMoveLogCsv() : "",
+            stateJson = rules != null ? JsonUtility.ToJson(rules.ExportState()) : ""
+        };
+        KifuDatabase.Add(rec);
+        kifuForm.SetActive(false);
+        if (scorePopup != null) scorePopup.SetActive(false);
+        Flash("棋谱已保存");
+    }
+
+    void BuildKifuForm(Transform canvasRoot)
+    {
+        kifuForm = new GameObject("KifuForm");
+        kifuForm.transform.SetParent(canvasRoot, false);
+        var overlay = kifuForm.AddComponent<Image>();
+        overlay.color = new Color(0.05f, 0.04f, 0.03f, 0.78f);
+        overlay.raycastTarget = true;
+        var ort = kifuForm.GetComponent<RectTransform>();
+        ort.anchorMin = Vector2.zero;
+        ort.anchorMax = Vector2.one;
+        ort.offsetMin = ort.offsetMax = Vector2.zero;
+
+        var card = new GameObject("Card");
+        card.transform.SetParent(kifuForm.transform, false);
+        var cimg = card.AddComponent<Image>();
+        cimg.color = new Color(0.16f, 0.13f, 0.09f, 1f);
+        var crt = card.GetComponent<RectTransform>();
+        crt.anchorMin = crt.anchorMax = new Vector2(0.5f, 0.5f);
+        crt.sizeDelta = new Vector2(560f, 620f);
+
+        var vlg = card.AddComponent<VerticalLayoutGroup>();
+        vlg.padding = new RectOffset(28, 28, 22, 18);
+        vlg.spacing = 8f;
+        vlg.childAlignment = TextAnchor.UpperCenter;
+        vlg.childControlWidth = true;
+        vlg.childControlHeight = true;
+        vlg.childForceExpandWidth = true;
+        vlg.childForceExpandHeight = false;
+
+        MakeText(card.transform, "保存棋谱", 26, Ink, TextAnchor.MiddleCenter);
+        kifuTitle = MakeLabeledInput(card.transform, "对局名称", "请输入对局名称", 36f, false);
+        kifuBlack = MakeLabeledInput(card.transform, "黑方昵称", "黑方昵称", 36f, false);
+        kifuBlackRank = MakeLabeledInput(card.transform, "黑方段位", "段位（选填）", 36f, false);
+        kifuWhite = MakeLabeledInput(card.transform, "白方昵称", "白方昵称", 36f, false);
+        kifuWhiteRank = MakeLabeledInput(card.transform, "白方段位", "段位（选填）", 36f, false);
+        kifuTimeText = MakeReadOnlyRow(card.transform, "对局时间");
+        kifuResultText = MakeReadOnlyRow(card.transform, "对局结果");
+        kifuDesc = MakeLabeledInput(card.transform, "对局描述", "可填写备注", 72f, true);
+
+        var row = MakeRow(card.transform, 44f);
+        MakeButton(row, "返回", 40f, KifuFormBack);
+        var ok = MakeButton(row, "确定", 40f, KifuFormConfirm);
+        ok.GetComponent<Image>().color = Accent;
+        StyleAccentLabel(ok);
+        kifuForm.SetActive(false);
     }
 
     void BuildStudyBoardUi(Transform canvasRoot)
@@ -902,7 +1100,7 @@ public class GoGame : MonoBehaviour
         if (studyBtnTerrText != null)
             studyBtnTerrText.text = showTerritory ? "形势：开" : "形势：关";
         if (studyTerritoryText != null)
-            studyTerritoryText.gameObject.SetActive(inStudyMode && !inMenu && showTerritory);
+            studyTerritoryText.gameObject.SetActive((inStudyMode || reviewingKifu) && !inMenu && showTerritory);
     }
 
     void BuildStudyBoardLabels(int n)
@@ -965,7 +1163,7 @@ public class GoGame : MonoBehaviour
 
     void RefreshStudyVisuals()
     {
-        bool on = inStudyMode && !inMenu;
+        bool on = (inStudyMode || reviewingKifu) && !inMenu;
         if (studyBoardUi != null) studyBoardUi.SetActive(on);
         if (studyLabelRoot != null) studyLabelRoot.SetActive(on && showCoords);
         SyncStudyToggleLabels();
@@ -1074,7 +1272,7 @@ public class GoGame : MonoBehaviour
         brt.anchorMin = Vector2.zero; brt.anchorMax = Vector2.one;
         brt.sizeDelta = Vector2.zero; brt.anchoredPosition = Vector2.zero;
 
-        mainPanel = BuildMenuPanel("MainPanel", 380f, 420f, pt =>
+        mainPanel = BuildMenuPanel("MainPanel", 380f, 500f, pt =>
         {
             MakeText(pt, "围  棋", 42, Ink, TextAnchor.MiddleCenter);
             MakeText(pt, "请选择模式", 14, Dim, TextAnchor.MiddleCenter);
@@ -1084,6 +1282,7 @@ public class GoGame : MonoBehaviour
             StyleAccentLabel(study);
 
             MakeButton(pt, "人机对弈", 52f, ShowAiSetup);
+            MakeButton(pt, "历史棋谱", 52f, ShowHistoryPanel);
 
             var quit = MakeButton(pt, "退  出", 52f, QuitGame);
             quit.GetComponentInChildren<Text>().color = Dim;
@@ -1117,6 +1316,215 @@ public class GoGame : MonoBehaviour
             MakeButton(pt, "返回", 40f, ShowMainMenu);
         });
         aiSetupPanel.SetActive(false);
+
+        historyPanel = BuildMenuPanel("HistoryPanel", 640f, 680f, pt =>
+        {
+            MakeText(pt, "历史棋谱", 32, Ink, TextAnchor.MiddleCenter);
+            MakeText(pt, "按名称、昵称、结果或描述搜索", 13, Dim, TextAnchor.MiddleCenter);
+            historySearch = MakeInputField(pt, "搜索棋谱", 36f, false);
+            historySearch.onValueChanged.AddListener(RebuildHistoryList);
+
+            var listHost = new GameObject("HistoryList");
+            listHost.transform.SetParent(pt, false);
+            var listLe = listHost.AddComponent<LayoutElement>();
+            listLe.flexibleHeight = 1f;
+            listLe.minHeight = 280f;
+            listLe.preferredHeight = 380f;
+            var listBg = listHost.AddComponent<Image>();
+            listBg.color = new Color(0.08f, 0.06f, 0.04f, 0.95f);
+            var scroll = listHost.AddComponent<ScrollRect>();
+            scroll.horizontal = false;
+            scroll.movementType = ScrollRect.MovementType.Clamped;
+            scroll.scrollSensitivity = 28f;
+            listHost.AddComponent<RectMask2D>();
+
+            var viewport = new GameObject("Viewport");
+            viewport.transform.SetParent(listHost.transform, false);
+            var vrt = viewport.AddComponent<RectTransform>();
+            vrt.anchorMin = Vector2.zero;
+            vrt.anchorMax = Vector2.one;
+            vrt.offsetMin = new Vector2(8f, 8f);
+            vrt.offsetMax = new Vector2(-8f, -8f);
+            viewport.AddComponent<RectMask2D>();
+
+            var content = new GameObject("Content");
+            content.transform.SetParent(viewport.transform, false);
+            var crt = content.AddComponent<RectTransform>();
+            crt.anchorMin = new Vector2(0f, 1f);
+            crt.anchorMax = new Vector2(1f, 1f);
+            crt.pivot = new Vector2(0.5f, 1f);
+            crt.anchoredPosition = Vector2.zero;
+            crt.sizeDelta = Vector2.zero;
+            var cv = content.AddComponent<VerticalLayoutGroup>();
+            cv.spacing = 6f;
+            cv.childAlignment = TextAnchor.UpperCenter;
+            cv.childControlWidth = true;
+            cv.childControlHeight = true;
+            cv.childForceExpandWidth = true;
+            cv.childForceExpandHeight = false;
+            var fit = content.AddComponent<ContentSizeFitter>();
+            fit.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            historyListContent = content.transform;
+            scroll.viewport = vrt;
+            scroll.content = crt;
+
+            MakeButton(pt, "返回", 40f, ShowMainMenu);
+        });
+        historyPanel.SetActive(false);
+        BuildHistoryDetail();
+    }
+
+    void BuildHistoryDetail()
+    {
+        historyDetail = new GameObject("HistoryDetail");
+        historyDetail.transform.SetParent(menuCanvas.transform, false);
+        var overlay = historyDetail.AddComponent<Image>();
+        overlay.color = new Color(0.05f, 0.04f, 0.03f, 0.72f);
+        overlay.raycastTarget = true;
+        var ort = historyDetail.GetComponent<RectTransform>();
+        ort.anchorMin = Vector2.zero;
+        ort.anchorMax = Vector2.one;
+        ort.offsetMin = ort.offsetMax = Vector2.zero;
+
+        var card = new GameObject("Card");
+        card.transform.SetParent(historyDetail.transform, false);
+        var cimg = card.AddComponent<Image>();
+        cimg.color = new Color(0.16f, 0.13f, 0.09f, 1f);
+        var crt = card.GetComponent<RectTransform>();
+        crt.anchorMin = crt.anchorMax = new Vector2(0.5f, 0.5f);
+        crt.sizeDelta = new Vector2(520f, 480f);
+
+        var vlg = card.AddComponent<VerticalLayoutGroup>();
+        vlg.padding = new RectOffset(28, 28, 24, 20);
+        vlg.spacing = 12f;
+        vlg.childAlignment = TextAnchor.UpperCenter;
+        vlg.childControlWidth = true;
+        vlg.childControlHeight = true;
+        vlg.childForceExpandWidth = true;
+        vlg.childForceExpandHeight = false;
+
+        historyDetailText = MakeText(card.transform, "", 16, Ink, TextAnchor.UpperLeft);
+        var dle = historyDetailText.gameObject.AddComponent<LayoutElement>();
+        dle.flexibleHeight = 1f;
+        dle.minHeight = 280f;
+        MakeButton(card.transform, "返回", 40f, () => historyDetail.SetActive(false));
+        historyDetail.SetActive(false);
+    }
+
+    void RebuildHistoryList(string keyword)
+    {
+        if (historyListContent == null) return;
+        for (int i = historyListContent.childCount - 1; i >= 0; i--)
+            UnityEngine.Object.Destroy(historyListContent.GetChild(i).gameObject);
+
+        var rows = KifuDatabase.Query(keyword);
+        if (rows.Count == 0)
+        {
+            MakeText(historyListContent, "暂无棋谱", 16, Dim, TextAnchor.MiddleCenter);
+            return;
+        }
+        foreach (var rec in rows)
+        {
+            var captured = rec;
+            string line = $"{rec.title}  ·  {rec.result}\n{rec.blackName} vs {rec.whiteName}  ·  {rec.playedAt}";
+            var btn = MakeButton(historyListContent, line, 56f, () => OpenKifuReview(captured));
+            var t = btn.GetComponentInChildren<Text>();
+            t.fontSize = 13;
+            t.horizontalOverflow = HorizontalWrapMode.Wrap;
+            t.verticalOverflow = VerticalWrapMode.Overflow;
+        }
+    }
+
+    void OpenHistoryDetail(KifuRecord rec)
+    {
+        OpenKifuReview(rec);
+    }
+
+    void OpenKifuReview(KifuRecord rec)
+    {
+        if (rec == null) return;
+        reviewingKifu = true;
+        reviewRec = rec;
+        inStudyMode = false;
+        vsAI = false;
+        aiBusy = false;
+        StopAllCoroutines();
+        boardSize = rec.boardSize > 0 ? rec.boardSize : 19;
+        showMoveNums = true;
+        reviewLogCsv = rec.moveLogCsv ?? "";
+        reviewTotal = rules.CountLogMoves(reviewLogCsv);
+        if (reviewTotal <= 0 && rec.moveCount > 0) reviewTotal = rec.moveCount;
+        reviewPly = reviewTotal;
+        inMenu = false;
+        if (historyDetail != null) historyDetail.SetActive(false);
+        if (historyPanel != null) historyPanel.SetActive(false);
+        menuCanvas.SetActive(false);
+        HideScorePopup();
+        BuildBoard();
+        ReviewSeek(reviewPly);
+        Flash($"{rec.title}  ·  {rec.blackName} vs {rec.whiteName}");
+    }
+
+    void ReviewSeek(int ply)
+    {
+        if (!reviewingKifu || rules == null) return;
+        if (ply < 0) ply = 0;
+        if (ply > reviewTotal) ply = reviewTotal;
+        reviewPly = ply;
+
+        rules.Reset(boardSize);
+        rules.Komi = reviewRec != null && reviewRec.komi > 0f ? reviewRec.komi : 7.5f;
+        if (reviewRec != null && reviewRec.handicap > 0)
+            rules.SetupHandicap(HandicapPoints(boardSize, reviewRec.handicap));
+
+        bool ok = rules.ReplayToPly(reviewLogCsv, reviewPly);
+        if (!ok) Flash("棋谱部分着法无法复原");
+
+        if (reviewPly >= reviewTotal && reviewRec != null && !string.IsNullOrEmpty(reviewRec.stateJson))
+        {
+            var data = JsonUtility.FromJson<GoStateData>(reviewRec.stateJson);
+            if (data != null && data.size == boardSize)
+                rules.ImportState(data);
+        }
+        else
+        {
+            rules.ResumeRecording();
+        }
+        rules.EnsureMoveAtForDisplay();
+        Refresh();
+    }
+
+    void RefreshReviewMoveLog()
+    {
+        if (reviewTotal == 0 || string.IsNullOrEmpty(reviewLogCsv))
+        {
+            moveLogText.text = "本局无落子记录";
+            return;
+        }
+        var parts = reviewLogCsv.Split('|');
+        var sb = new System.Text.StringBuilder(reviewTotal * 28);
+        int shown = 0;
+        for (int i = 0; i < parts.Length; i++)
+        {
+            if (string.IsNullOrEmpty(parts[i])) continue;
+            var p = parts[i].Split(',');
+            if (p.Length < 2) continue;
+            int.TryParse(p[0], out int x);
+            int.TryParse(p[1], out int y);
+            bool pass = x < 0;
+            if (shown > 0) sb.Append('\n');
+            string mark = shown + 1 == reviewPly ? "▶ " : "   ";
+            if (pass) sb.Append($"{mark}第{shown + 1:000}棋停一手");
+            else sb.Append($"{mark}第{shown + 1:000}棋下在（{ColLabel(x)}，{RowLabel(y)}）");
+            shown++;
+        }
+        moveLogText.text = sb.ToString();
+        if (moveLogScroll != null)
+        {
+            Canvas.ForceUpdateCanvases();
+            float den = Mathf.Max(1, reviewTotal);
+            moveLogScroll.verticalNormalizedPosition = 1f - (reviewPly / den);
+        }
     }
 
     GameObject BuildMenuPanel(string name, float width, float height, System.Action<Transform> build)
@@ -1272,6 +1680,88 @@ public class GoGame : MonoBehaviour
         return btn;
     }
 
+    InputField MakeLabeledInput(Transform parent, string label, string placeholder, float height, bool multi)
+    {
+        MakeText(parent, label, 13, Dim, TextAnchor.MiddleLeft);
+        return MakeInputField(parent, placeholder, height, multi);
+    }
+
+    Text MakeReadOnlyRow(Transform parent, string label)
+    {
+        MakeText(parent, label, 13, Dim, TextAnchor.MiddleLeft);
+        var go = new GameObject(label);
+        go.transform.SetParent(parent, false);
+        var le = go.AddComponent<LayoutElement>();
+        le.preferredHeight = 32f;
+        var img = go.AddComponent<Image>();
+        img.color = new Color(0.10f, 0.08f, 0.06f, 1f);
+
+        var tgo = new GameObject("Val");
+        tgo.transform.SetParent(go.transform, false);
+        var t = tgo.AddComponent<Text>();
+        t.font = font;
+        t.fontSize = 15;
+        t.color = Ink;
+        t.alignment = TextAnchor.MiddleLeft;
+        t.horizontalOverflow = HorizontalWrapMode.Overflow;
+        t.verticalOverflow = VerticalWrapMode.Overflow;
+        t.raycastTarget = false;
+        var rt = t.GetComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = new Vector2(10f, 0f);
+        rt.offsetMax = new Vector2(-10f, 0f);
+        return t;
+    }
+
+    InputField MakeInputField(Transform parent, string placeholder, float height, bool multi)
+    {
+        var go = new GameObject("Input");
+        go.transform.SetParent(parent, false);
+        var le = go.AddComponent<LayoutElement>();
+        le.preferredHeight = height;
+        le.minHeight = height;
+        var img = go.AddComponent<Image>();
+        img.color = new Color(0.10f, 0.08f, 0.06f, 1f);
+
+        var input = go.AddComponent<InputField>();
+        input.targetGraphic = img;
+        input.lineType = multi ? InputField.LineType.MultiLineNewline : InputField.LineType.SingleLine;
+
+        var textGo = new GameObject("Text");
+        textGo.transform.SetParent(go.transform, false);
+        var text = textGo.AddComponent<Text>();
+        text.font = font;
+        text.fontSize = 15;
+        text.color = Ink;
+        text.supportRichText = false;
+        text.alignment = multi ? TextAnchor.UpperLeft : TextAnchor.MiddleLeft;
+        var trt = text.GetComponent<RectTransform>();
+        trt.anchorMin = Vector2.zero;
+        trt.anchorMax = Vector2.one;
+        trt.offsetMin = new Vector2(10f, 4f);
+        trt.offsetMax = new Vector2(-10f, -4f);
+
+        var phGo = new GameObject("Placeholder");
+        phGo.transform.SetParent(go.transform, false);
+        var ph = phGo.AddComponent<Text>();
+        ph.font = font;
+        ph.fontSize = 15;
+        ph.color = new Color(Dim.r, Dim.g, Dim.b, 0.7f);
+        ph.text = placeholder;
+        ph.supportRichText = false;
+        ph.alignment = text.alignment;
+        var prt = ph.GetComponent<RectTransform>();
+        prt.anchorMin = Vector2.zero;
+        prt.anchorMax = Vector2.one;
+        prt.offsetMin = new Vector2(10f, 4f);
+        prt.offsetMax = new Vector2(-10f, -4f);
+
+        input.textComponent = text;
+        input.placeholder = ph;
+        return input;
+    }
+
     void Flash(string msg)
     {
         msgText.text = msg;
@@ -1288,6 +1778,17 @@ public class GoGame : MonoBehaviour
 
     void Refresh()
     {
+        bool rev = reviewingKifu;
+        if (btnUndo != null) btnUndo.SetActive(!rev);
+        if (btnPass != null) btnPass.SetActive(!rev);
+        if (btnResign != null) btnResign.SetActive(!rev);
+        if (btnClear != null) btnClear.SetActive(!rev);
+        if (btnScore != null) btnScore.SetActive(!rev);
+        if (btnReviewPrev != null) btnReviewPrev.SetActive(rev);
+        if (btnReviewNext != null) btnReviewNext.SetActive(rev);
+        if (btnReviewEnd != null) btnReviewEnd.SetActive(rev);
+        if (homeBtnLabel != null) homeBtnLabel.text = rev ? "返回棋谱" : "返回主界面";
+
         int n = boardSize;
         for (int y = 0; y < n; y++)
         for (int x = 0; x < n; x++)
@@ -1303,7 +1804,7 @@ public class GoGame : MonoBehaviour
             deadSr[x, y].enabled = dead;
         }
 
-        if (rules.LastMove >= 0 && rules.Phase != GoPhase.Over)
+        if (rules.LastMove >= 0 && (reviewingKifu || rules.Phase != GoPhase.Over))
         {
             markerSr.enabled = true;
             markerSr.transform.position = new Vector3(rules.LastMove % n, rules.LastMove / n, 0f);
@@ -1312,7 +1813,13 @@ public class GoGame : MonoBehaviour
         }
         else markerSr.enabled = false;
 
-        if (rules.Result != null) turnText.text = rules.Result;
+        if (reviewingKifu && reviewRec != null)
+        {
+            string names = $"{reviewRec.blackName} vs {reviewRec.whiteName}";
+            string res = string.IsNullOrEmpty(reviewRec.result) ? "" : reviewRec.result + "\n";
+            turnText.text = $"{reviewRec.title}\n{names}\n{res}第 {reviewPly}/{reviewTotal} 手";
+        }
+        else if (rules.Result != null) turnText.text = rules.Result;
         else if (aiBusy) turnText.text = (aiColor == GoRules.BLACK ? "黑棋" : "白棋") + "（AI）思考中…";
         else
         {
