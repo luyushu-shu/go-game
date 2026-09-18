@@ -19,6 +19,5 @@ compile*.log
 *.sln
 *.user
 
-# 系统
-Thumbs.db
-Desktop.ini
+# 本机大模型密钥（勿提交）
+llm_key.txt

@@ -30,8 +30,11 @@ public class GoGame : MonoBehaviour
     int colorChoice = 0;     // 0=执黑 1=执白 2=猜先
     float komi = 7.5f;
     int handicap = 0;
+    int opponentChoice = 1; // 0=本地引擎 1=大模型
     int humanColor = GoRules.BLACK;
     int aiColor => GoRules.Opp(humanColor);
+    List<Button> optOpponent;
+    InputField llmKeyInput;
 
     Camera cam;
     Transform boardRoot;
@@ -147,6 +150,15 @@ public class GoGame : MonoBehaviour
 
     void StartAiGame()
     {
+        if (opponentChoice == 1 && !GoLlmAi.IsConfigured())
+        {
+            if (llmKeyInput != null) GoLlmAi.ApiKey = llmKeyInput.text;
+            if (!GoLlmAi.IsConfigured())
+            {
+                Flash("请先填写大模型密钥（xAI / OpenAI 兼容）");
+                return;
+            }
+        }
         inStudyMode = false;
         vsAI = true;
         boardSize = sizeChoice == 0 ? 9 : sizeChoice == 1 ? 13 : 19;
@@ -164,6 +176,7 @@ public class GoGame : MonoBehaviour
         Flash(colorChoice == 2
             ? "猜先结果：你" + (humanColor == GoRules.BLACK ? "执黑" : "执白")
             : humanColor == GoRules.BLACK ? "你执黑" : "你执白");
+        if (opponentChoice == 1) Flash("电脑由大模型选点");
         if (rules.Result == null && rules.Phase == GoPhase.Play && rules.Turn == aiColor)
             StartCoroutine(AiTurn());
     }
@@ -330,22 +343,46 @@ public class GoGame : MonoBehaviour
     IEnumerator AiTurn()
     {
         aiBusy = true; Refresh();
-        float budget = boardSize <= 9 ? 1.2f : boardSize <= 13 ? 2f : 2.6f;
-        yield return null;   // 让"思考中"先显示一帧
-        GoAI.BeginSearch(rules, aiColor, budget);
-        while (!GoAI.SearchDone) yield return null;
+        yield return null;
+        bool llm = opponentChoice == 1 && GoLlmAi.IsConfigured();
+        bool played = false;
+        if (llm)
+        {
+            yield return GoLlmAi.RequestMove(rules, aiColor);
+            if (GoLlmAi.LastError == null)
+            {
+                played = true;
+                if (GoLlmAi.ResultIsPass)
+                {
+                    rules.Pass();
+                    Flash(rules.Phase == GoPhase.Scoring ? "双方停一手，进入数子" : "电脑停一手");
+                }
+                else if (!rules.Play(GoLlmAi.ResultX, GoLlmAi.ResultY, out string msg))
+                {
+                    played = false;
+                    Flash(msg);
+                }
+            }
+            else Flash("大模型失败，改用本地引擎：" + GoLlmAi.LastError);
+        }
+        if (!played)
+        {
+            float budget = boardSize <= 9 ? 2.0f : boardSize <= 13 ? 3.2f : 4.2f;
+            GoAI.BeginSearch(rules, aiColor, budget);
+            while (!GoAI.SearchDone) yield return null;
+            if (GoAI.ResultIsPass)
+            {
+                rules.Pass();
+                Flash(rules.Phase == GoPhase.Scoring ? "双方停一手，进入数子" : "AI 停一手");
+            }
+            else if (GoAI.BestWinRate < 0.18 && rules.MoveCount > 80)
+            {
+                rules.Resign();
+                ShowResultPopup(rules.Result);
+            }
+            else rules.Play(GoAI.ResultX, GoAI.ResultY, out _);
+        }
         aiBusy = false;
-        if (GoAI.ResultIsPass)
-        {
-            rules.Pass();
-            Flash(rules.Phase == GoPhase.Scoring ? "AI 停一手，进入数子" : "AI 停一手");
-        }
-        else if (GoAI.BestWinRate < 0.03 && rules.MoveCount > 100)
-        {
-            rules.Resign();
-            ShowResultPopup(rules.Result);
-        }
-        else rules.Play(GoAI.ResultX, GoAI.ResultY, out _);
         Refresh();
     }
 
@@ -1288,7 +1325,7 @@ public class GoGame : MonoBehaviour
             quit.GetComponentInChildren<Text>().color = Dim;
         });
 
-        aiSetupPanel = BuildMenuPanel("AiSetupPanel", 470f, 620f, pt =>
+        aiSetupPanel = BuildMenuPanel("AiSetupPanel", 500f, 760f, pt =>
         {
             MakeText(pt, "人机对弈", 36, Ink, TextAnchor.MiddleCenter);
             MakeText(pt, "开局前选定棋盘与规则，进入对局后不可更改", 13, Dim, TextAnchor.MiddleCenter);
@@ -1299,6 +1336,9 @@ public class GoGame : MonoBehaviour
             MakeText(pt, "执子", 14, Dim, TextAnchor.MiddleCenter);
             optColor = MakeOptions(pt, new[] { "执黑先行", "执白后行", "猜先" }, i => colorChoice = i);
 
+            MakeText(pt, "电脑对手", 14, Dim, TextAnchor.MiddleCenter);
+            optOpponent = MakeOptions(pt, new[] { "本地引擎", "大模型" }, i => opponentChoice = i);
+
             MakeText(pt, "贴目", 14, Dim, TextAnchor.MiddleCenter);
             komiValText = MakeStepper(pt,
                 () => komi = Mathf.Max(0f, komi - 0.5f),
@@ -1308,6 +1348,11 @@ public class GoGame : MonoBehaviour
             handiValText = MakeStepper(pt,
                 () => handicap = Mathf.Max(0, handicap - 1),
                 () => handicap = Mathf.Min(9, handicap + 1));
+
+            MakeText(pt, "大模型密钥（xAI / OpenAI 兼容，仅存本机）", 13, Dim, TextAnchor.MiddleCenter);
+            llmKeyInput = MakeInputField(pt, "粘贴 API Key", 36f, false);
+            llmKeyInput.contentType = InputField.ContentType.Password;
+            llmKeyInput.onEndEdit.AddListener(v => GoLlmAi.ApiKey = v);
 
             var start = MakeButton(pt, "开始对局", 46f, StartAiGame);
             start.GetComponent<Image>().color = Accent;
@@ -1562,8 +1607,11 @@ public class GoGame : MonoBehaviour
     {
         PaintOptions(optSize, sizeChoice);
         PaintOptions(optColor, colorChoice);
+        if (optOpponent != null) PaintOptions(optOpponent, opponentChoice);
         komiValText.text = $"贴 {komi:0.0} 目";
         handiValText.text = handicap == 0 ? "不让子" : $"让 {handicap} 子";
+        if (llmKeyInput != null && string.IsNullOrEmpty(llmKeyInput.text))
+            llmKeyInput.text = PlayerPrefs.GetString("GoLlmKey", "");
     }
 
     void PaintOptions(List<Button> btns, int sel)
@@ -1820,7 +1868,8 @@ public class GoGame : MonoBehaviour
             turnText.text = $"{reviewRec.title}\n{names}\n{res}第 {reviewPly}/{reviewTotal} 手";
         }
         else if (rules.Result != null) turnText.text = rules.Result;
-        else if (aiBusy) turnText.text = (aiColor == GoRules.BLACK ? "黑棋" : "白棋") + "（AI）思考中…";
+        else if (aiBusy) turnText.text = (aiColor == GoRules.BLACK ? "黑棋" : "白棋")
+            + (opponentChoice == 1 ? "（大模型）思考中…" : "（AI）思考中…");
         else
         {
             string who = rules.Turn == GoRules.BLACK ? "黑棋" : "白棋";
