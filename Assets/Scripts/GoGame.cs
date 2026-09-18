@@ -30,7 +30,7 @@ public class GoGame : MonoBehaviour
     int colorChoice = 0;     // 0=执黑 1=执白 2=猜先
     float komi = 7.5f;
     int handicap = 0;
-    int opponentChoice = 1; // 0=本地引擎 1=大模型
+    int opponentChoice = 1; // 0=本地引擎 1=KataGo 2=大模型
     int humanColor = GoRules.BLACK;
     int aiColor => GoRules.Opp(humanColor);
     List<Button> optOpponent;
@@ -150,7 +150,7 @@ public class GoGame : MonoBehaviour
 
     void StartAiGame()
     {
-        if (opponentChoice == 1 && !GoLlmAi.IsConfigured())
+        if (opponentChoice == 2 && !GoLlmAi.IsConfigured())
         {
             if (llmKeyInput != null) GoLlmAi.ApiKey = llmKeyInput.text;
             if (!GoLlmAi.IsConfigured())
@@ -159,8 +159,14 @@ public class GoGame : MonoBehaviour
                 return;
             }
         }
+        if (opponentChoice == 1 && !GoKataGo.IsAvailable())
+        {
+            Flash(GoKataGo.InstallHint());
+            return;
+        }
         inStudyMode = false;
         vsAI = true;
+        showMoveNums = true;
         boardSize = sizeChoice == 0 ? 9 : sizeChoice == 1 ? 13 : 19;
         humanColor = colorChoice == 0 ? GoRules.BLACK
                    : colorChoice == 1 ? GoRules.WHITE
@@ -176,7 +182,8 @@ public class GoGame : MonoBehaviour
         Flash(colorChoice == 2
             ? "猜先结果：你" + (humanColor == GoRules.BLACK ? "执黑" : "执白")
             : humanColor == GoRules.BLACK ? "你执黑" : "你执白");
-        if (opponentChoice == 1) Flash("电脑由大模型选点");
+        if (opponentChoice == 1) Flash("电脑由 KataGo 对弈");
+        else if (opponentChoice == 2) Flash("电脑由大模型选点");
         if (rules.Result == null && rules.Phase == GoPhase.Play && rules.Turn == aiColor)
             StartCoroutine(AiTurn());
     }
@@ -265,6 +272,7 @@ public class GoGame : MonoBehaviour
         vsAI = false;
         aiBusy = false;
         StopAllCoroutines();
+        GoKataGo.Shutdown();
         ShowMainMenu();
     }
 
@@ -344,9 +352,32 @@ public class GoGame : MonoBehaviour
     {
         aiBusy = true; Refresh();
         yield return null;
-        bool llm = opponentChoice == 1 && GoLlmAi.IsConfigured();
         bool played = false;
-        if (llm)
+        if (opponentChoice == 1)
+        {
+            yield return GoKataGo.GenMove(rules, aiColor, handicap, HandicapPoints);
+            if (GoKataGo.LastError == null)
+            {
+                played = true;
+                if (GoKataGo.ResultIsResign)
+                {
+                    rules.ResignBy(aiColor);
+                    ShowResultPopup(rules.Result);
+                }
+                else if (GoKataGo.ResultIsPass)
+                {
+                    rules.Pass();
+                    Flash(rules.Phase == GoPhase.Scoring ? "双方停一手，进入数子" : "KataGo 停一手");
+                }
+                else if (!rules.Play(GoKataGo.ResultX, GoKataGo.ResultY, out string msg))
+                {
+                    played = false;
+                    Flash(msg);
+                }
+            }
+            else Flash("KataGo 失败，改用本地引擎：" + GoKataGo.LastError);
+        }
+        else if (opponentChoice == 2 && GoLlmAi.IsConfigured())
         {
             yield return GoLlmAi.RequestMove(rules, aiColor);
             if (GoLlmAi.LastError == null)
@@ -1137,7 +1168,7 @@ public class GoGame : MonoBehaviour
         if (studyBtnTerrText != null)
             studyBtnTerrText.text = showTerritory ? "形势：开" : "形势：关";
         if (studyTerritoryText != null)
-            studyTerritoryText.gameObject.SetActive((inStudyMode || reviewingKifu) && !inMenu && showTerritory);
+            studyTerritoryText.gameObject.SetActive(BoardOverlayOn && showTerritory);
     }
 
     void BuildStudyBoardLabels(int n)
@@ -1198,9 +1229,11 @@ public class GoGame : MonoBehaviour
 
     static string RowLabel(int y) => (y + 1).ToString();
 
+    bool BoardOverlayOn => (inStudyMode || reviewingKifu || vsAI) && !inMenu;
+
     void RefreshStudyVisuals()
     {
-        bool on = (inStudyMode || reviewingKifu) && !inMenu;
+        bool on = BoardOverlayOn;
         if (studyBoardUi != null) studyBoardUi.SetActive(on);
         if (studyLabelRoot != null) studyLabelRoot.SetActive(on && showCoords);
         SyncStudyToggleLabels();
@@ -1337,7 +1370,7 @@ public class GoGame : MonoBehaviour
             optColor = MakeOptions(pt, new[] { "执黑先行", "执白后行", "猜先" }, i => colorChoice = i);
 
             MakeText(pt, "电脑对手", 14, Dim, TextAnchor.MiddleCenter);
-            optOpponent = MakeOptions(pt, new[] { "本地引擎", "大模型" }, i => opponentChoice = i);
+            optOpponent = MakeOptions(pt, new[] { "本地引擎", "KataGo", "大模型" }, i => opponentChoice = i);
 
             MakeText(pt, "贴目", 14, Dim, TextAnchor.MiddleCenter);
             komiValText = MakeStepper(pt,
@@ -1869,7 +1902,7 @@ public class GoGame : MonoBehaviour
         }
         else if (rules.Result != null) turnText.text = rules.Result;
         else if (aiBusy) turnText.text = (aiColor == GoRules.BLACK ? "黑棋" : "白棋")
-            + (opponentChoice == 1 ? "（大模型）思考中…" : "（AI）思考中…");
+            + (opponentChoice == 1 ? "（KataGo）思考中…" : opponentChoice == 2 ? "（大模型）思考中…" : "（AI）思考中…");
         else
         {
             string who = rules.Turn == GoRules.BLACK ? "黑棋" : "白棋";
@@ -1879,5 +1912,15 @@ public class GoGame : MonoBehaviour
 
         RefreshMoveLog();
         RefreshStudyVisuals();
+    }
+
+    void OnApplicationQuit()
+    {
+        GoKataGo.Shutdown();
+    }
+
+    void OnDestroy()
+    {
+        GoKataGo.Shutdown();
     }
 }

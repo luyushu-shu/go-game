@@ -5,7 +5,7 @@
 ## 功能
 
 - **打谱**：固定 19 路摆谱；手数 / 坐标 / 形势（Bouzy 估目）；退出主界面时自动保存进度
-- **人机对弈**：开局前选定 9 / 13 / 19 路、执黑 / 执白 / 猜先、贴目与让子；局内不可改路数
+- **人机对弈**：开局前选定 9 / 13 / 19 路、执黑 / 执白 / 猜先、贴目与让子、电脑对手；局内可开关手数 / 坐标 / 形势（与打谱相同）
 - **保存棋谱**：终局弹窗可填写对局名称、双方昵称与段位、描述；时间与结果由系统填入
 - **历史棋谱**：主界面可搜索本地棋谱库，点开后在棋盘上复盘（上一手 / 下一手 / 终局）
 - 完整规则：提子、打劫（Zobrist 全局同形禁着）、自杀拦截、双停数子、死子标记
@@ -13,7 +13,18 @@
 
 ## 电脑对手
 
-人机开局可选两种对手：
+人机开局可选三种对手：
+
+### KataGo（推荐）
+
+调用本机 [KataGo](https://github.com/lightvector/KataGo) GTP 引擎（10 路神经网络，g170e-b10c128）。Windows 发布包已附带引擎与权重；从源码运行时把文件放到工程根目录 `Tools/KataGo/`：
+
+- `katago.exe`（优先 OpenCL / GPU）
+- `katago-eigen.exe`（CPU AVX2 备用）
+- `default_model.bin.gz`
+- `gtp.cfg`（每手约 400 visits / 最多 4 秒；本仓库提供）
+
+引擎二进制不进 Git。首次用 OpenCL 时可能自动调优，第一手会稍慢。
 
 ### 本地引擎（MCTS）
 
@@ -46,7 +57,7 @@
 
 鼠标单击交叉点落子。主界面：**打谱** / **人机对弈** / **历史棋谱** / **退出**。
 
-对局右侧：落子记录、悔棋、停一手、认输、清空、数目、返回。打谱另有手数 / 坐标 / 形势。复盘时用上一手、下一手、终局浏览棋谱。
+对局右侧：落子记录、悔棋、停一手、认输、清空、数目、返回。打谱与人机左下角可开关手数 / 坐标 / 形势。复盘时用上一手、下一手、终局浏览棋谱。
 
 ## 打包
 
@@ -63,6 +74,7 @@ Tuanjie.exe -batchmode -quit -projectPath . -executeMethod BuildScript.BuildWind
 ```
 Assets/Scripts/GoRules.cs        规则引擎（纯 C#）
 Assets/Scripts/GoAI.cs           本地 MCTS + RAVE
+Assets/Scripts/GoKataGo.cs       KataGo GTP 对接
 Assets/Scripts/GoLlmAi.cs        大模型选点（xAI / OpenAI 兼容）
 Assets/Scripts/KifuDatabase.cs   本地 JSON 棋谱库
 Assets/Scripts/GoGame.cs         渲染、UI、存档与复盘

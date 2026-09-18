@@ -21,3 +21,8 @@ compile*.log
 
 # 本机大模型密钥（勿提交）
 llm_key.txt
+
+# KataGo 引擎、权重与调优缓存（仅保留 gtp.cfg / README.txt）
+Tools/KataGo/*
+!Tools/KataGo/gtp.cfg
+!Tools/KataGo/README.txt
