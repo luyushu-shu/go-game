@@ -17,6 +17,7 @@ public class GoGame : MonoBehaviour
 
     const int StudyBoardSize = 19;
     const string StudySaveKey = "GoStudySave";
+    static string StudySavePath => System.IO.Path.Combine(Application.persistentDataPath, "study_save.json");
 
     // 人机对弈开局设置（进入对局前选定，局内不可改）
     int sizeChoice = 2;      // 0=9路 1=13路 2=19路
@@ -31,12 +32,23 @@ public class GoGame : MonoBehaviour
     SpriteRenderer boardSr;
     SpriteRenderer[,] stoneSr;
     SpriteRenderer[,] deadSr;
+    SpriteRenderer[,] terrSr;
+    TextMesh[,] moveNumMeshes;
     SpriteRenderer ghostSr, markerSr;
-    Sprite stoneBlack, stoneWhite, deadXSpr, ringSpr;
+    Sprite stoneBlack, stoneWhite, deadXSpr, ringSpr, boxSpr;
+    Font numberFont;
 
     Font font;
-    Text turnText, statsText, msgText, scoreText;
-    GameObject passBtn, undoBtn, resignBtn, resumeBtn, scoreBtn;
+    Text turnText, msgText, moveLogText;
+    ScrollRect moveLogScroll;
+    GameObject scorePopup;
+    Text scorePopupTitle;
+    GameObject studyBoardUi, studyLabelRoot;
+    Text studyTerritoryText, studyBtnMovesText, studyBtnCoordsText, studyBtnTerrText;
+    Text[] studyColBot, studyColTop, studyRowLeft, studyRowRight;
+    static readonly Color MoveNumOnBlack = Color.white;
+    static readonly Color MoveNumOnWhite = new Color(0.08f, 0.08f, 0.08f);
+    bool showMoveNums, showCoords, showTerritory;
     Coroutine msgCo;
 
     // 主界面
@@ -57,6 +69,13 @@ public class GoGame : MonoBehaviour
 
     void Awake()
     {
+        font = Font.CreateDynamicFontFromOSFont(new[] { "Microsoft YaHei", "SimHei", "Arial" }, 16);
+        if (font == null) font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        numberFont = Font.CreateDynamicFontFromOSFont(new[] { "Arial", "Segoe UI", "Calibri", "Microsoft YaHei" }, 48);
+        if (numberFont == null) numberFont = font;
+        if (numberFont != null)
+            numberFont.RequestCharactersInTexture("0123456789", 42, FontStyle.Normal);
+
         cam = Camera.main;
         if (cam == null)
         {
@@ -73,6 +92,7 @@ public class GoGame : MonoBehaviour
         stoneWhite = MakeStoneSprite(false);
         deadXSpr = MakeDeadXSprite();
         ringSpr = MakeRingSprite();
+        boxSpr = MakeBoxSprite();
 
         rules = new GoRules(boardSize);
         BuildBoard();
@@ -88,28 +108,22 @@ public class GoGame : MonoBehaviour
         inStudyMode = true;
         vsAI = false;
         boardSize = StudyBoardSize;
+        showMoveNums = true;
         aiBusy = false;
         StopAllCoroutines();
 
-        if (PlayerPrefs.HasKey(StudySaveKey))
+        if (TryLoadStudySave(out var data) && rules.ImportState(data))
         {
-            var data = JsonUtility.FromJson<GoStateData>(PlayerPrefs.GetString(StudySaveKey));
-            if (rules.ImportState(data))
-            {
-                rules.ResumeRecording();
-                Flash("已恢复打谱进度");
-            }
-            else
-            {
-                rules.Reset(boardSize);
-                rules.Komi = komi;
-                Flash("存档损坏，已重新开始");
-            }
+            rules.ResumeRecording();
+            rules.EnsureMoveAtForDisplay();
+            Flash("已恢复打谱进度");
         }
         else
         {
             rules.Reset(boardSize);
             rules.Komi = komi;
+            if (PlayerPrefs.HasKey(StudySaveKey))
+                Flash("存档损坏，已重新开始");
         }
 
         EnterGame();
@@ -146,21 +160,62 @@ public class GoGame : MonoBehaviour
         Refresh();
     }
 
+    bool TryLoadStudySave(out GoStateData data)
+    {
+        data = null;
+        var a = ParseStudyJson(System.IO.File.Exists(StudySavePath)
+            ? System.IO.File.ReadAllText(StudySavePath) : null);
+        var b = PlayerPrefs.HasKey(StudySaveKey)
+            ? ParseStudyJson(PlayerPrefs.GetString(StudySaveKey)) : null;
+        data = PickRicherSave(a, b);
+        return data != null && data.size > 0;
+    }
+
+    static GoStateData ParseStudyJson(string json)
+    {
+        if (string.IsNullOrEmpty(json)) return null;
+        var d = JsonUtility.FromJson<GoStateData>(json);
+        return d != null && d.size > 0 ? d : null;
+    }
+
+    static GoStateData PickRicherSave(GoStateData a, GoStateData b)
+    {
+        if (a == null) return b;
+        if (b == null) return a;
+        return CountMoveNums(b) > CountMoveNums(a) ? b : a;
+    }
+
+    static int CountMoveNums(GoStateData d)
+    {
+        if (d == null) return 0;
+        int n = 0;
+        if (!string.IsNullOrEmpty(d.moveAtCsv))
+            foreach (var p in d.moveAtCsv.Split(','))
+                if (int.TryParse(p, out int v) && v > 0) n++;
+        if (!string.IsNullOrEmpty(d.moveLogCsv))
+            n = System.Math.Max(n, d.moveLogCsv.Split('|').Length);
+        if (d.moveCount > n) n = d.moveCount;
+        return n;
+    }
+
     void SaveStudyProgress()
     {
         if (!inStudyMode) return;
         var data = rules.ExportState();
-        // 打谱存档始终保存为可继续落子的对局状态
         data.phase = (int)GoPhase.Play;
         data.passes = 0;
         data.result = null;
         data.dead = new int[0];
-        PlayerPrefs.SetString(StudySaveKey, JsonUtility.ToJson(data));
+        string json = JsonUtility.ToJson(data);
+        PlayerPrefs.SetString(StudySaveKey, json);
         PlayerPrefs.Save();
+        try { System.IO.File.WriteAllText(StudySavePath, json); }
+        catch { }
     }
 
     void ReturnToMainMenu()
     {
+        HideScorePopup();
         if (inStudyMode) SaveStudyProgress();
         inStudyMode = false;
         vsAI = false;
@@ -176,6 +231,7 @@ public class GoGame : MonoBehaviour
         mainPanel.SetActive(true);
         aiSetupPanel.SetActive(false);
         if (ghostSr != null) ghostSr.enabled = false;
+        RefreshStudyVisuals();
     }
 
     void ShowAiSetup()
@@ -215,6 +271,7 @@ public class GoGame : MonoBehaviour
     void AfterMove()
     {
         Refresh();
+        if (inStudyMode) SaveStudyProgress();
         if (vsAI && rules.Result == null && rules.Phase == GoPhase.Play && rules.Turn == aiColor)
             StartCoroutine(AiTurn());
     }
@@ -234,7 +291,8 @@ public class GoGame : MonoBehaviour
         }
         else if (GoAI.BestWinRate < 0.03 && rules.MoveCount > 100)
         {
-            rules.Resign();   // 胜率无望时 AI 认输，不填子赖皮
+            rules.Resign();
+            ShowResultPopup(rules.Result);
         }
         else rules.Play(GoAI.ResultX, GoAI.ResultY, out _);
         Refresh();
@@ -312,6 +370,8 @@ public class GoGame : MonoBehaviour
 
         stoneSr = new SpriteRenderer[n, n];
         deadSr = new SpriteRenderer[n, n];
+        terrSr = new SpriteRenderer[n, n];
+        moveNumMeshes = new TextMesh[n, n];
         for (int y = 0; y < n; y++)
         for (int x = 0; x < n; x++)
         {
@@ -329,6 +389,39 @@ public class GoGame : MonoBehaviour
             var xr = xo.AddComponent<SpriteRenderer>();
             xr.sprite = deadXSpr; xr.sortingOrder = 2; xr.enabled = false;
             deadSr[x, y] = xr;
+
+            var to = new GameObject("terr");
+            to.transform.SetParent(so.transform, false);
+            to.transform.localPosition = Vector3.zero;
+            to.transform.localScale = Vector3.one * 0.5f;
+            var tsr = to.AddComponent<SpriteRenderer>();
+            tsr.sprite = boxSpr;
+            tsr.sortingOrder = 1;
+            tsr.enabled = false;
+            terrSr[x, y] = tsr;
+
+            var numGo = new GameObject("MoveNum");
+            numGo.transform.SetParent(so.transform, false);
+            numGo.transform.localPosition = new Vector3(0f, 0.02f, 0f);
+            numGo.transform.localRotation = Quaternion.identity;
+            numGo.transform.localScale = Vector3.one;
+            var tm = numGo.AddComponent<TextMesh>();
+            tm.font = numberFont;
+            tm.fontSize = 32;
+            tm.characterSize = 0.095f;
+            tm.anchor = TextAnchor.MiddleCenter;
+            tm.alignment = TextAlignment.Center;
+            tm.fontStyle = FontStyle.Normal;
+            tm.richText = false;
+            tm.text = "";
+            var mr = numGo.GetComponent<MeshRenderer>();
+            if (numberFont != null && numberFont.material != null)
+                mr.sharedMaterial = numberFont.material;
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            mr.receiveShadows = false;
+            mr.sortingOrder = 4;
+            numGo.SetActive(false);
+            moveNumMeshes[x, y] = tm;
         }
 
         var gh = new GameObject("Ghost");
@@ -348,6 +441,7 @@ public class GoGame : MonoBehaviour
 
         cam.orthographicSize = (n + 1) / 2f + 0.7f;
         cam.transform.position = new Vector3((n - 1) / 2f, (n - 1) / 2f, -10f);
+        BuildStudyBoardLabels(n);
     }
 
     static int[] StarPoints(int n)
@@ -456,6 +550,18 @@ public class GoGame : MonoBehaviour
         return Sprite.Create(tex, new Rect(0, 0, s, s), new Vector2(0.5f, 0.5f), s);
     }
 
+    Sprite MakeBoxSprite()
+    {
+        int s = 32;
+        var px = new Color32[s * s];
+        Color32 on = new Color32(255, 255, 255, 255);
+        for (int i = 0; i < px.Length; i++) px[i] = on;
+        var tex = new Texture2D(s, s, TextureFormat.RGBA32, false);
+        tex.filterMode = FilterMode.Bilinear;
+        tex.SetPixels32(px); tex.Apply(false, false);
+        return Sprite.Create(tex, new Rect(0, 0, s, s), new Vector2(0.5f, 0.5f), s);
+    }
+
     Sprite MakeDeadXSprite()
     {
         int s = 128;
@@ -480,9 +586,6 @@ public class GoGame : MonoBehaviour
 
     void BuildUI()
     {
-        font = Font.CreateDynamicFontFromOSFont(new[] { "Microsoft YaHei", "SimHei", "Arial" }, 16);
-        if (font == null) font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-
         var cgo = new GameObject("UI");
         var canvas = cgo.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
@@ -502,15 +605,16 @@ public class GoGame : MonoBehaviour
         var pgo = new GameObject("Panel");
         pgo.transform.SetParent(canvas.transform, false);
         var pimg = pgo.AddComponent<Image>();
-        pimg.color = new Color(0.14f, 0.11f, 0.08f, 0.94f);
+        pimg.color = new Color(0.14f, 0.11f, 0.08f, 0.96f);
         var prt = pgo.GetComponent<RectTransform>();
-        prt.anchorMin = new Vector2(1f, 0f); prt.anchorMax = new Vector2(1f, 1f);
+        prt.anchorMin = new Vector2(1f, 0f);
+        prt.anchorMax = new Vector2(1f, 1f);
         prt.pivot = new Vector2(1f, 0.5f);
-        prt.sizeDelta = new Vector2(260f, 0f);
-        prt.anchoredPosition = Vector2.zero;
+        prt.sizeDelta = new Vector2(268f, -72f);
+        prt.anchoredPosition = new Vector2(-36f, 0f);
 
         var vlg = pgo.AddComponent<VerticalLayoutGroup>();
-        vlg.padding = new RectOffset(14, 14, 18, 18);
+        vlg.padding = new RectOffset(14, 14, 16, 16);
         vlg.spacing = 8f;
         vlg.childAlignment = TextAnchor.UpperCenter;
         vlg.childControlWidth = true;
@@ -519,23 +623,433 @@ public class GoGame : MonoBehaviour
         vlg.childForceExpandHeight = false;
         var pt = pgo.transform;
 
-        MakeText(pt, "围  棋", 30, Ink, TextAnchor.MiddleCenter);
-        turnText = MakeText(pt, "", 18, Ink, TextAnchor.MiddleCenter);
-        statsText = MakeText(pt, "", 15, Dim, TextAnchor.MiddleCenter);
-        msgText = MakeText(pt, "", 14, Accent, TextAnchor.MiddleCenter);
-        scoreText = MakeText(pt, "", 15, Ink, TextAnchor.MiddleCenter);
+        MakeText(pt, "落子记录", 16, Dim, TextAnchor.MiddleCenter);
+        BuildMoveLogScroll(pt);
+        turnText = MakeText(pt, "", 15, Ink, TextAnchor.MiddleCenter);
+        msgText = MakeText(pt, "", 15, Accent, TextAnchor.MiddleCenter);
 
-        MakeButton(pt, "返回主界面", 36f, ReturnToMainMenu);
+        MakeButton(pt, "悔棋", 42f, Undo);
+        MakeButton(pt, "停一手", 42f, HumanPass);
+        MakeButton(pt, "认输", 42f, HumanResign);
+        MakeButton(pt, "清空棋盘", 42f, ClearBoardKeepPlaying);
+        MakeButton(pt, "数目", 42f, OpenScorePopup);
+        MakeButton(pt, "返回主界面", 42f, ReturnToMainMenu);
 
-        var row2 = MakeRow(pt, 34f);
-        undoBtn = MakeButton(row2, "悔棋", 32f, Undo).gameObject;
-        passBtn = MakeButton(row2, "停一手", 32f, HumanPass).gameObject;
-        resignBtn = MakeButton(pt, "认输", 32f, () => { rules.Resign(); Refresh(); }).gameObject;
-        resumeBtn = MakeButton(pt, "继续对局", 32f, () => { rules.ResumePlay(); Refresh(); AfterMove(); }).gameObject;
-        scoreBtn = MakeButton(pt, "确认终局", 32f, () => { rules.ConfirmEnd(); Refresh(); }).gameObject;
+        BuildScorePopup(canvas.transform);
+        BuildStudyBoardUi(canvas.transform);
+    }
 
-        MakeText(pt, "黑先贴目，让子局白先。双方各停一手进入数子；数子时点击棋子可将整串标为死子，再点恢复。",
-            13, Dim, TextAnchor.UpperLeft);
+    void BuildMoveLogScroll(Transform parent)
+    {
+        var scrollGo = new GameObject("MoveLog");
+        scrollGo.transform.SetParent(parent, false);
+        var le = scrollGo.AddComponent<LayoutElement>();
+        le.flexibleHeight = 1f;
+        le.minHeight = 180f;
+        var bg = scrollGo.AddComponent<Image>();
+        bg.color = new Color(0.08f, 0.06f, 0.04f, 0.95f);
+        var scroll = scrollGo.AddComponent<ScrollRect>();
+        scroll.horizontal = false;
+        scroll.movementType = ScrollRect.MovementType.Clamped;
+        scroll.scrollSensitivity = 24f;
+        scrollGo.AddComponent<RectMask2D>();
+
+        var viewport = new GameObject("Viewport");
+        viewport.transform.SetParent(scrollGo.transform, false);
+        var vrt = viewport.AddComponent<RectTransform>();
+        vrt.anchorMin = Vector2.zero;
+        vrt.anchorMax = Vector2.one;
+        vrt.offsetMin = new Vector2(8f, 8f);
+        vrt.offsetMax = new Vector2(-8f, -8f);
+        viewport.AddComponent<RectMask2D>();
+
+        var content = new GameObject("Content");
+        content.transform.SetParent(viewport.transform, false);
+        var crt = content.AddComponent<RectTransform>();
+        crt.anchorMin = new Vector2(0f, 1f);
+        crt.anchorMax = new Vector2(1f, 1f);
+        crt.pivot = new Vector2(0.5f, 1f);
+        crt.anchoredPosition = Vector2.zero;
+        crt.sizeDelta = new Vector2(0f, 0f);
+        var cv = content.AddComponent<VerticalLayoutGroup>();
+        cv.childAlignment = TextAnchor.UpperLeft;
+        cv.childControlWidth = true;
+        cv.childControlHeight = true;
+        cv.childForceExpandWidth = true;
+        cv.childForceExpandHeight = false;
+        var fit = content.AddComponent<ContentSizeFitter>();
+        fit.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        moveLogText = MakeText(content.transform, "暂无落子", 15, Ink, TextAnchor.UpperLeft);
+        moveLogScroll = scroll;
+        scroll.viewport = vrt;
+        scroll.content = crt;
+    }
+
+    void BuildScorePopup(Transform canvasRoot)
+    {
+        scorePopup = new GameObject("ScorePopup");
+        scorePopup.transform.SetParent(canvasRoot, false);
+        var overlay = scorePopup.AddComponent<Image>();
+        overlay.color = new Color(0.05f, 0.04f, 0.03f, 0.72f);
+        overlay.raycastTarget = true;
+        var ort = scorePopup.GetComponent<RectTransform>();
+        ort.anchorMin = Vector2.zero;
+        ort.anchorMax = Vector2.one;
+        ort.offsetMin = ort.offsetMax = Vector2.zero;
+
+        var card = new GameObject("Card");
+        card.transform.SetParent(scorePopup.transform, false);
+        var cimg = card.AddComponent<Image>();
+        cimg.color = new Color(0.16f, 0.13f, 0.09f, 1f);
+        var crt = card.GetComponent<RectTransform>();
+        crt.anchorMin = crt.anchorMax = new Vector2(0.5f, 0.5f);
+        crt.sizeDelta = new Vector2(460f, 280f);
+
+        var vlg = card.AddComponent<VerticalLayoutGroup>();
+        vlg.padding = new RectOffset(28, 28, 28, 24);
+        vlg.spacing = 16f;
+        vlg.childAlignment = TextAnchor.MiddleCenter;
+        vlg.childControlWidth = true;
+        vlg.childControlHeight = true;
+        vlg.childForceExpandWidth = true;
+        vlg.childForceExpandHeight = false;
+
+        scorePopupTitle = MakeText(card.transform, "", 26, Ink, TextAnchor.MiddleCenter);
+        var titleLe = scorePopupTitle.gameObject.AddComponent<LayoutElement>();
+        titleLe.preferredHeight = 72f;
+        titleLe.minHeight = 48f;
+
+        MakeButton(card.transform, "返回主界面", 44f, ScorePopupReturnHome);
+        MakeButton(card.transform, "再来一局", 44f, ScorePopupReplay);
+        MakeButton(card.transform, "保存棋谱", 44f, ScorePopupSaveKifu);
+        scorePopup.SetActive(false);
+    }
+
+    void RefreshMoveLog()
+    {
+        if (moveLogText == null || rules == null) return;
+        int n = rules.LoggedMoveCount;
+        if (n == 0)
+        {
+            moveLogText.text = "暂无落子";
+            return;
+        }
+        var sb = new System.Text.StringBuilder(n * 24);
+        for (int i = 0; i < n; i++)
+        {
+            if (!rules.GetLoggedMove(i, out int x, out int y, out bool pass)) continue;
+            if (i > 0) sb.Append('\n');
+            if (pass) sb.Append($"第{i + 1:000}棋停一手");
+            else sb.Append($"第{i + 1:000}棋下在（{ColLabel(x)}，{RowLabel(y)}）");
+        }
+        moveLogText.text = sb.ToString();
+        if (moveLogScroll != null)
+            Canvas.ForceUpdateCanvases();
+        if (moveLogScroll != null)
+            moveLogScroll.verticalNormalizedPosition = 0f;
+    }
+
+    void ClearBoardKeepPlaying()
+    {
+        HideScorePopup();
+        WipeBoardState();
+        BuildBoard();
+        Refresh();
+        Flash("棋盘已清空");
+    }
+
+    void WipeBoardState()
+    {
+        rules.Reset(boardSize);
+        PlayerPrefs.DeleteKey(StudySaveKey);
+        PlayerPrefs.Save();
+        try
+        {
+            if (System.IO.File.Exists(StudySavePath))
+                System.IO.File.Delete(StudySavePath);
+        }
+        catch { }
+    }
+
+    void HumanResign()
+    {
+        if (aiBusy || inMenu || rules.Result != null) return;
+        if (vsAI) rules.ResignBy(humanColor);
+        else rules.Resign();
+        Refresh();
+        ShowResultPopup(rules.Result);
+    }
+
+    void OpenScorePopup()
+    {
+        if (scorePopup == null || rules == null) return;
+        rules.EstimateSituation(out float bs, out float ws,
+            out _, out _, out _, out _, out _, out _, out _);
+        float diff = bs - ws;
+        string line;
+        if (diff > 0.05f) line = $"黑胜{diff:0.0}目";
+        else if (diff < -0.05f) line = $"白胜{-diff:0.0}目";
+        else line = "双方打平";
+        ShowResultPopup(line);
+    }
+
+    void ShowResultPopup(string title)
+    {
+        if (scorePopup == null) return;
+        scorePopupTitle.text = title;
+        scorePopup.SetActive(true);
+    }
+
+    void HideScorePopup()
+    {
+        if (scorePopup != null) scorePopup.SetActive(false);
+    }
+
+    void ScorePopupReturnHome()
+    {
+        HideScorePopup();
+        WipeBoardState();
+        inStudyMode = false;
+        vsAI = false;
+        ShowMainMenu();
+    }
+
+    void ScorePopupReplay()
+    {
+        HideScorePopup();
+        ClearBoardKeepPlaying();
+    }
+
+    void ScorePopupSaveKifu()
+    {
+        Flash("保存棋谱功能稍后接入");
+    }
+
+    void BuildStudyBoardUi(Transform canvasRoot)
+    {
+        studyBoardUi = new GameObject("StudyBoardUi");
+        studyBoardUi.transform.SetParent(canvasRoot, false);
+        var barRt = studyBoardUi.AddComponent<RectTransform>();
+        barRt.anchorMin = new Vector2(0f, 0f);
+        barRt.anchorMax = new Vector2(0f, 0f);
+        barRt.pivot = new Vector2(0f, 0f);
+        barRt.anchoredPosition = new Vector2(12f, 12f);
+        barRt.sizeDelta = new Vector2(420f, 40f);
+
+        var hlg = studyBoardUi.AddComponent<HorizontalLayoutGroup>();
+        hlg.spacing = 6f;
+        hlg.childAlignment = TextAnchor.MiddleCenter;
+        hlg.childControlWidth = true;
+        hlg.childControlHeight = true;
+        hlg.childForceExpandWidth = true;
+        hlg.childForceExpandHeight = true;
+
+        studyBtnMovesText = MakeStudyToggleBtn(studyBoardUi.transform, "手数", () =>
+        {
+            showMoveNums = !showMoveNums;
+            SyncStudyToggleLabels();
+            RefreshStudyVisuals();
+        });
+        studyBtnCoordsText = MakeStudyToggleBtn(studyBoardUi.transform, "坐标", () =>
+        {
+            showCoords = !showCoords;
+            SyncStudyToggleLabels();
+            RefreshStudyVisuals();
+        });
+        studyBtnTerrText = MakeStudyToggleBtn(studyBoardUi.transform, "形势", () =>
+        {
+            showTerritory = !showTerritory;
+            SyncStudyToggleLabels();
+            RefreshStudyVisuals();
+        });
+
+        var terrGo = new GameObject("Territory");
+        terrGo.transform.SetParent(canvasRoot, false);
+        var terrRt = terrGo.AddComponent<RectTransform>();
+        terrRt.anchorMin = new Vector2(0f, 0f);
+        terrRt.anchorMax = new Vector2(0f, 0f);
+        terrRt.pivot = new Vector2(0f, 0f);
+        terrRt.anchoredPosition = new Vector2(12f, 58f);
+        terrRt.sizeDelta = new Vector2(620f, 68f);
+        studyTerritoryText = terrGo.AddComponent<Text>();
+        studyTerritoryText.font = font;
+        studyTerritoryText.fontSize = 14;
+        studyTerritoryText.color = Ink;
+        studyTerritoryText.alignment = TextAnchor.UpperLeft;
+        studyTerritoryText.horizontalOverflow = HorizontalWrapMode.Wrap;
+        studyTerritoryText.verticalOverflow = VerticalWrapMode.Overflow;
+        studyTerritoryText.text = "";
+
+        studyBoardUi.SetActive(false);
+        terrGo.SetActive(false);
+        studyTerritoryText.gameObject.SetActive(false);
+    }
+
+    Text MakeStudyToggleBtn(Transform parent, string name, UnityEngine.Events.UnityAction cb)
+    {
+        var btn = MakeButton(parent, name + "：关", 36f, cb);
+        btn.GetComponentInChildren<Text>().fontSize = 15;
+        return btn.GetComponentInChildren<Text>();
+    }
+
+    void SyncStudyToggleLabels()
+    {
+        if (studyBtnMovesText != null)
+            studyBtnMovesText.text = showMoveNums ? "手数：开" : "手数：关";
+        if (studyBtnCoordsText != null)
+            studyBtnCoordsText.text = showCoords ? "坐标：开" : "坐标：关";
+        if (studyBtnTerrText != null)
+            studyBtnTerrText.text = showTerritory ? "形势：开" : "形势：关";
+        if (studyTerritoryText != null)
+            studyTerritoryText.gameObject.SetActive(inStudyMode && !inMenu && showTerritory);
+    }
+
+    void BuildStudyBoardLabels(int n)
+    {
+        if (studyLabelRoot != null) Destroy(studyLabelRoot);
+        studyColBot = new Text[n];
+        studyColTop = new Text[n];
+        studyRowLeft = new Text[n];
+        studyRowRight = new Text[n];
+
+        studyLabelRoot = new GameObject("StudyLabels");
+        studyLabelRoot.transform.SetParent(boardRoot, false);
+        var canvas = studyLabelRoot.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.WorldSpace;
+        canvas.worldCamera = cam;
+        canvas.overrideSorting = true;
+        canvas.sortingOrder = 10;
+        var crt = studyLabelRoot.GetComponent<RectTransform>();
+        crt.sizeDelta = new Vector2(n * 100, n * 100);
+        studyLabelRoot.transform.localScale = Vector3.one * 0.01f;
+        studyLabelRoot.transform.position = new Vector3((n - 1) / 2f, (n - 1) / 2f, 0f);
+
+        for (int i = 0; i < n; i++)
+        {
+            studyColBot[i] = MakeBoardOverlayText(canvas.transform, i, -0.72f, n, ColLabel(i), 24, Dim);
+            studyColTop[i] = MakeBoardOverlayText(canvas.transform, i, n - 1 + 0.72f, n, ColLabel(i), 24, Dim);
+            studyRowLeft[i] = MakeBoardOverlayText(canvas.transform, -0.72f, i, n, RowLabel(i), 24, Dim);
+            studyRowRight[i] = MakeBoardOverlayText(canvas.transform, n - 1 + 0.72f, i, n, RowLabel(i), 24, Dim);
+        }
+
+        studyLabelRoot.SetActive(false);
+    }
+
+    Text MakeBoardOverlayText(Transform parent, float gx, float gy, int n, string text, int fontSize, Color color)
+    {
+        var go = new GameObject("Lbl");
+        go.transform.SetParent(parent, false);
+        var rt = go.AddComponent<RectTransform>();
+        rt.sizeDelta = new Vector2(90f, 36f);
+        rt.anchoredPosition = new Vector2((gx - (n - 1) / 2f) * 100f, (gy - (n - 1) / 2f) * 100f);
+        var t = go.AddComponent<Text>();
+        t.font = font;
+        t.text = text;
+        t.fontSize = fontSize;
+        t.color = color;
+        t.alignment = TextAnchor.MiddleCenter;
+        t.horizontalOverflow = HorizontalWrapMode.Overflow;
+        t.verticalOverflow = VerticalWrapMode.Overflow;
+        t.raycastTarget = false;
+        return t;
+    }
+
+    static string ColLabel(int x)
+    {
+        const string letters = "ABCDEFGHJKLMNOPQRST";
+        return x < letters.Length ? letters[x].ToString() : (x + 1).ToString();
+    }
+
+    static string RowLabel(int y) => (y + 1).ToString();
+
+    void RefreshStudyVisuals()
+    {
+        bool on = inStudyMode && !inMenu;
+        if (studyBoardUi != null) studyBoardUi.SetActive(on);
+        if (studyLabelRoot != null) studyLabelRoot.SetActive(on && showCoords);
+        SyncStudyToggleLabels();
+
+        if (!on) return;
+        int n = boardSize;
+
+        if (moveNumMeshes != null)
+        {
+            for (int y = 0; y < n; y++)
+            for (int x = 0; x < n; x++)
+            {
+                var tm = moveNumMeshes[x, y];
+                if (tm == null) continue;
+                int i = rules.Idx(x, y);
+                int stone = rules.Board[i];
+                int mv = rules.MoveAt[i];
+                if (!showMoveNums || stone == GoRules.EMPTY || mv <= 0)
+                {
+                    tm.gameObject.SetActive(false);
+                    continue;
+                }
+                tm.gameObject.SetActive(true);
+                tm.text = mv.ToString();
+                tm.color = stone == GoRules.BLACK ? MoveNumOnBlack : MoveNumOnWhite;
+            }
+        }
+
+        for (int i = 0; i < n; i++)
+        {
+            bool cOn = showCoords;
+            studyColBot[i].enabled = cOn;
+            studyColTop[i].enabled = cOn;
+            studyRowLeft[i].enabled = cOn;
+            studyRowRight[i].enabled = cOn;
+        }
+
+        if (showTerritory)
+        {
+            rules.EstimateSituation(out float bs, out float ws,
+                out int bt, out int wt, out int bm, out int wm, out int db, out int dw, out int[] owner);
+            float diff = bs - ws;
+            string lead = diff > 0.05f ? $"黑领先约 {diff:0.0} 目"
+                        : diff < -0.05f ? $"白领先约 {-diff:0.0} 目" : "接近均势";
+            studyTerritoryText.text =
+                $"形势（Bouzy 5/21）  黑 {bs:0.0}    白 {ws:0.0}（含贴目 {rules.Komi:0.0}）\n" +
+                $"实地 黑{bt} 白{wt}    厚势 黑{bm} 白{wm}" +
+                (db + dw > 0 ? $"    疑死 黑{db} 白{dw}" : "") +
+                $"\n{lead}";
+            PaintTerritoryBoxes(owner);
+        }
+        else
+        {
+            if (studyTerritoryText != null) studyTerritoryText.text = "";
+            PaintTerritoryBoxes(null);
+        }
+    }
+
+    void PaintTerritoryBoxes(int[] owner)
+    {
+        if (terrSr == null) return;
+        int n = boardSize;
+        bool on = owner != null && owner.Length == n * n;
+        Color blackBox = new Color(0.08f, 0.08f, 0.08f, 0.92f);
+        Color whiteBox = new Color(0.97f, 0.97f, 0.97f, 0.92f);
+        Color blackMoyo = new Color(0.12f, 0.12f, 0.12f, 0.42f);
+        Color whiteMoyo = new Color(1f, 1f, 1f, 0.42f);
+        for (int y = 0; y < n; y++)
+        for (int x = 0; x < n; x++)
+        {
+            var sr = terrSr[x, y];
+            if (sr == null) continue;
+            if (!on)
+            {
+                sr.enabled = false;
+                continue;
+            }
+            int o = owner[rules.Idx(x, y)];
+            if (o == GoRules.BLACK) { sr.enabled = true; sr.color = blackBox; }
+            else if (o == GoRules.WHITE) { sr.enabled = true; sr.color = whiteBox; }
+            else if (o == GoRules.BLACK + 10) { sr.enabled = true; sr.color = blackMoyo; }
+            else if (o == GoRules.WHITE + 10) { sr.enabled = true; sr.color = whiteMoyo; }
+            else sr.enabled = false;
+        }
     }
 
     /* ---------------- 主界面 ---------------- */
@@ -799,36 +1313,15 @@ public class GoGame : MonoBehaviour
         else markerSr.enabled = false;
 
         if (rules.Result != null) turnText.text = rules.Result;
-        else if (rules.Phase == GoPhase.Scoring) turnText.text = "数子中 · 点击棋子标死";
         else if (aiBusy) turnText.text = (aiColor == GoRules.BLACK ? "黑棋" : "白棋") + "（AI）思考中…";
         else
         {
             string who = rules.Turn == GoRules.BLACK ? "黑棋" : "白棋";
-            if (inStudyMode)
-                turnText.text = who + "落子";
-            else
-            {
-                string side = rules.Turn == humanColor ? "（你）" : "（AI）";
-                turnText.text = who + "落子" + side;
-            }
+            if (inStudyMode) turnText.text = who + "落子";
+            else turnText.text = who + "落子" + (rules.Turn == humanColor ? "（你）" : "（AI）");
         }
 
-        string modeLabel = inStudyMode ? "打谱" : "人机对弈";
-        string phase = rules.Phase == GoPhase.Play ? "进行中" : rules.Phase == GoPhase.Scoring ? "数子" : "终局";
-        statsText.text = $"{modeLabel} · {boardSize} 路 · 手数 {rules.MoveCount} · {phase}\n黑提子 {rules.Captures[GoRules.BLACK]}    白提子 {rules.Captures[GoRules.WHITE]}";
-
-        if (rules.Phase != GoPhase.Play)
-        {
-            rules.ComputeScore(out float bs, out float ws, out int bst, out int bt, out int wst, out int wt);
-            scoreText.text = $"黑：子 {bst} + 空 {bt} = {bs}\n白：子 {wst} + 空 {wt} + 贴目 {rules.Komi:0.0} = {ws:0.0}";
-        }
-        else scoreText.text = "";
-
-        bool playing = rules.Phase == GoPhase.Play && rules.Result == null;
-        passBtn.SetActive(playing);
-        undoBtn.SetActive(playing || rules.Phase == GoPhase.Scoring);
-        resignBtn.SetActive(playing);
-        resumeBtn.SetActive(rules.Phase == GoPhase.Scoring);
-        scoreBtn.SetActive(rules.Phase == GoPhase.Scoring);
+        RefreshMoveLog();
+        RefreshStudyVisuals();
     }
 }

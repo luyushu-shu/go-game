@@ -15,6 +15,8 @@ public class GoStateData
     public string result;
     public int[] dead;
     public float komi;
+    public string moveAtCsv;
+    public string moveLogCsv;  // x,y,color 序列，用于恢复旧存档手数
 }
 
 // 围棋规则引擎：提子、打劫（全局同形禁着）、自杀拦截、双停数子。
@@ -28,6 +30,7 @@ public class GoRules
 
     public int Size { get; private set; }
     public int[] Board { get; private set; }
+    public int[] MoveAt { get; private set; }
     public int Turn { get; private set; }
     public int Passes { get; private set; }
     public int MoveCount { get; private set; }
@@ -39,11 +42,14 @@ public class GoRules
 
     struct Snapshot
     {
-        public int[] board; public int turn; public int capB; public int capW;
+        public int[] board, moveAt; public int turn; public int capB; public int capW;
         public int passes; public int moveCount; public int lastMove; public long hashAfter;
     }
     readonly List<Snapshot> history = new List<Snapshot>();
     readonly HashSet<long> posHashes = new HashSet<long>();
+
+    struct MoveRec { public int x, y, c; }
+    readonly List<MoveRec> moveLog = new List<MoveRec>();
 
     // Zobrist 哈希表：打劫判定与 AI 搜索共用
     public static readonly long[] Zob = new long[19 * 19 * 3];
@@ -60,10 +66,11 @@ public class GoRules
     {
         Size = size;
         Board = new int[size * size];
+        MoveAt = new int[size * size];
         Turn = BLACK; Passes = 0; MoveCount = 0; LastMove = -1;
         Captures[BLACK] = Captures[WHITE] = 0;
         Phase = GoPhase.Play; Result = null; Dead.Clear();
-        history.Clear(); posHashes.Clear();
+        history.Clear(); moveLog.Clear(); posHashes.Clear();
         posHashes.Add(Hash(Board));
     }
 
@@ -80,6 +87,18 @@ public class GoRules
 
     public int Idx(int x, int y) { return y * Size + x; }
     public static int Opp(int c) { return c == BLACK ? WHITE : BLACK; }
+
+    public int LoggedMoveCount => moveLog.Count;
+
+    public bool GetLoggedMove(int i, out int x, out int y, out bool isPass)
+    {
+        x = y = 0; isPass = false;
+        if (i < 0 || i >= moveLog.Count) return false;
+        var m = moveLog[i];
+        isPass = m.x < 0;
+        x = m.x; y = m.y;
+        return true;
+    }
 
     public IEnumerable<int> Neighbors(int i)
     {
@@ -156,13 +175,18 @@ public class GoRules
         if (posHashes.Contains(h)) { msg = "打劫，此处暂不能落子"; return false; }
         history.Add(new Snapshot
         {
-            board = Board, turn = Turn, capB = Captures[BLACK], capW = Captures[WHITE],
+            board = Board, moveAt = (int[])MoveAt.Clone(), turn = Turn,
+            capB = Captures[BLACK], capW = Captures[WHITE],
             passes = Passes, moveCount = MoveCount, lastMove = LastMove, hashAfter = h
         });
+        moveLog.Add(new MoveRec { x = x, y = y, c = Turn });
         Board = nb;
+        foreach (int c in cap) MoveAt[c] = 0;
+        LastMove = Idx(x, y);
+        MoveAt[LastMove] = MoveCount + 1;
         Captures[Turn] += cap.Count;
         posHashes.Add(h);
-        LastMove = Idx(x, y); Passes = 0; MoveCount++;
+        Passes = 0; MoveCount++;
         Turn = Opp(Turn);
         return true;
     }
@@ -172,17 +196,25 @@ public class GoRules
         if (Phase != GoPhase.Play || Result != null) return;
         history.Add(new Snapshot
         {
-            board = Board, turn = Turn, capB = Captures[BLACK], capW = Captures[WHITE],
+            board = Board, moveAt = (int[])MoveAt.Clone(), turn = Turn,
+            capB = Captures[BLACK], capW = Captures[WHITE],
             passes = Passes, moveCount = MoveCount, lastMove = LastMove, hashAfter = -1
         });
-        Passes++; LastMove = -1; Turn = Opp(Turn);
+        Passes++; LastMove = -1;
+        moveLog.Add(new MoveRec { x = -1, y = -1, c = Turn });
+        Turn = Opp(Turn);
         if (Passes >= 2) { Phase = GoPhase.Scoring; Dead.Clear(); }
     }
 
     public void Resign()
     {
+        ResignBy(Turn);
+    }
+
+    public void ResignBy(int color)
+    {
         if (Result != null) return;
-        Result = Turn == BLACK ? "白方胜 · 黑方认输" : "黑方胜 · 白方认输";
+        Result = color == BLACK ? "白中盘胜" : "黑中盘胜";
         Phase = GoPhase.Over;
     }
 
@@ -193,7 +225,10 @@ public class GoRules
         {
             var s = history[history.Count - 1];
             history.RemoveAt(history.Count - 1);
-            Board = s.board; Turn = s.turn;
+            if (moveLog.Count > 0) moveLog.RemoveAt(moveLog.Count - 1);
+            Board = s.board;
+            MoveAt = s.moveAt != null ? (int[])s.moveAt.Clone() : new int[Size * Size];
+            Turn = s.turn;
             Captures[BLACK] = s.capB; Captures[WHITE] = s.capW;
             Passes = s.passes; MoveCount = s.moveCount; LastMove = s.lastMove;
         }
@@ -253,6 +288,106 @@ public class GoRules
         whiteScore = whiteStones + whiteTerr + Komi;
     }
 
+    // 形势判断：Bruno Bouzy 5/21 形态学估目（GNU Go estimate_score / Indigo 同款）。
+    // 先对棋子影响力做 5 次膨胀、再 21 次腐蚀；残留正负值视为实地。
+    // 5/10 得到更大的厚势（moyo）。对方棋子落在己方实地内视为被吃。
+    public void EstimateSituation(
+        out float blackScore, out float whiteScore,
+        out int blackTerr, out int whiteTerr,
+        out int blackMoyo, out int whiteMoyo,
+        out int deadBlack, out int deadWhite,
+        out int[] owner)
+    {
+        int n = Size * Size;
+        var a = new int[n];
+        var b = new int[n];
+        for (int i = 0; i < n; i++)
+        {
+            if (Board[i] == BLACK) a[i] = 128;
+            else if (Board[i] == WHITE) a[i] = -128;
+        }
+
+        for (int k = 0; k < 5; k++) { BouzyDilate(a, b); Swap(ref a, ref b); }
+        var afterDilate = (int[])a.Clone();
+        for (int k = 0; k < 21; k++) { BouzyErode(a, b); Swap(ref a, ref b); }
+        var terr = a;
+
+        var moyo = (int[])afterDilate.Clone();
+        for (int k = 0; k < 10; k++) { BouzyErode(moyo, b); Swap(ref moyo, ref b); }
+
+        blackTerr = whiteTerr = blackMoyo = whiteMoyo = deadBlack = deadWhite = 0;
+        int liveB = 0, liveW = 0;
+        owner = new int[n];
+        for (int i = 0; i < n; i++)
+        {
+            int stone = Board[i];
+            if (stone == BLACK)
+            {
+                if (terr[i] < 0) { deadBlack++; owner[i] = WHITE; }
+                else liveB++;
+            }
+            else if (stone == WHITE)
+            {
+                if (terr[i] > 0) { deadWhite++; owner[i] = BLACK; }
+                else liveW++;
+            }
+            else
+            {
+                if (terr[i] > 0) { blackTerr++; owner[i] = BLACK; }
+                else if (terr[i] < 0) { whiteTerr++; owner[i] = WHITE; }
+                else if (moyo[i] > 0) { blackMoyo++; owner[i] = BLACK + 10; }
+                else if (moyo[i] < 0) { whiteMoyo++; owner[i] = WHITE + 10; }
+            }
+        }
+        blackMoyo = System.Math.Max(0, blackMoyo);
+        whiteMoyo = System.Math.Max(0, whiteMoyo);
+
+        blackScore = liveB + blackTerr + deadWhite;
+        whiteScore = liveW + whiteTerr + deadBlack + Komi;
+    }
+
+    void BouzyDilate(int[] src, int[] dst)
+    {
+        for (int i = 0; i < src.Length; i++)
+        {
+            int pos = 0, neg = 0;
+            foreach (int nb in Neighbors(i))
+            {
+                if (src[nb] > 0) pos++;
+                else if (src[nb] < 0) neg++;
+            }
+            int v = src[i];
+            if (v > 0) dst[i] = v + (neg == 0 ? pos : 0);
+            else if (v < 0) dst[i] = v - (pos == 0 ? neg : 0);
+            else
+            {
+                int n = 0;
+                if (neg == 0) n += pos;
+                if (pos == 0) n -= neg;
+                dst[i] = n;
+            }
+        }
+    }
+
+    void BouzyErode(int[] src, int[] dst)
+    {
+        for (int i = 0; i < src.Length; i++)
+        {
+            int nonPos = 0, nonNeg = 0;
+            foreach (int nb in Neighbors(i))
+            {
+                if (src[nb] <= 0) nonPos++;
+                if (src[nb] >= 0) nonNeg++;
+            }
+            int v = src[i];
+            if (v > 0) { v -= nonPos; if (v < 0) v = 0; }
+            else if (v < 0) { v += nonNeg; if (v > 0) v = 0; }
+            dst[i] = v;
+        }
+    }
+
+    static void Swap(ref int[] a, ref int[] b) { var t = a; a = b; b = t; }
+
     public void ConfirmEnd()
     {
         if (Phase != GoPhase.Scoring) return;
@@ -299,8 +434,117 @@ public class GoRules
             phase = (int)Phase,
             result = Result,
             dead = deadArr,
-            komi = Komi
+            komi = Komi,
+            moveAtCsv = BoardToCsv(MoveAt),
+            moveLogCsv = MoveLogToCsv()
         };
+    }
+
+    string MoveLogToCsv()
+    {
+        if (moveLog.Count == 0) return "";
+        var parts = new string[moveLog.Count];
+        for (int i = 0; i < moveLog.Count; i++)
+            parts[i] = moveLog[i].x + "," + moveLog[i].y + "," + moveLog[i].c;
+        return string.Join("|", parts);
+    }
+
+    void ImportMoveLog(string csv)
+    {
+        moveLog.Clear();
+        if (string.IsNullOrEmpty(csv)) return;
+        foreach (string tok in csv.Split('|'))
+        {
+            if (string.IsNullOrEmpty(tok)) continue;
+            var p = tok.Split(',');
+            if (p.Length < 3) continue;
+            if (!int.TryParse(p[0], out int x) || !int.TryParse(p[1], out int y) || !int.TryParse(p[2], out int c))
+                continue;
+            moveLog.Add(new MoveRec { x = x, y = y, c = c });
+        }
+    }
+
+    public bool NeedsMoveAtRebuild()
+    {
+        for (int i = 0; i < Board.Length; i++)
+            if (Board[i] != EMPTY && MoveAt[i] <= 0) return true;
+        return false;
+    }
+
+    public void RebuildMoveAtFromLog()
+    {
+        var ma = new int[Size * Size];
+        var sim = new int[Size * Size];
+        int step = 0;
+        foreach (var m in moveLog)
+        {
+            if (m.x < 0) continue;
+            if (!Simulate(sim, m.x, m.y, m.c, out int[] nb, out List<int> cap)) continue;
+            step++;
+            foreach (int c in cap) ma[c] = 0;
+            System.Array.Copy(nb, sim, sim.Length);
+            ma[Idx(m.x, m.y)] = step;
+        }
+        MoveAt = ma;
+    }
+
+    bool LogReproducesBoard()
+    {
+        if (moveLog.Count == 0) return false;
+        var sim = new int[Size * Size];
+        foreach (var m in moveLog)
+        {
+            if (m.x < 0) continue;
+            if (!Simulate(sim, m.x, m.y, m.c, out int[] nb, out _)) return false;
+            sim = nb;
+        }
+        if (sim.Length != Board.Length) return false;
+        for (int i = 0; i < Board.Length; i++)
+            if (sim[i] != Board[i]) return false;
+        return true;
+    }
+
+    // 完整记录则按落子顺序编号；否则保留存档手数，并为缺号棋子补齐
+    public void EnsureMoveAtForDisplay()
+    {
+        if (LogReproducesBoard()) RebuildMoveAtFromLog();
+        FillMissingMoveNumbers();
+    }
+
+    void FillMissingMoveNumbers()
+    {
+        int stones = 0, maxAt = 0;
+        var blank = new List<int>();
+        var used = new HashSet<int>();
+        for (int i = 0; i < Board.Length; i++)
+        {
+            if (Board[i] == EMPTY) { MoveAt[i] = 0; continue; }
+            stones++;
+            if (MoveAt[i] > 0) { used.Add(MoveAt[i]); if (MoveAt[i] > maxAt) maxAt = MoveAt[i]; }
+            else blank.Add(i);
+        }
+        if (stones == 0) return;
+
+        int hi = MoveCount;
+        if (hi < stones) hi = stones;
+        if (hi < maxAt) hi = maxAt;
+        if (LastMove >= 0 && LastMove < Board.Length && Board[LastMove] != EMPTY)
+        {
+            used.Remove(MoveAt[LastMove]);
+            MoveAt[LastMove] = hi;
+            used.Add(hi);
+            blank.Remove(LastMove);
+        }
+        MoveCount = hi;
+
+        int next = 1;
+        foreach (int i in blank)
+        {
+            while (used.Contains(next)) next++;
+            MoveAt[i] = next;
+            used.Add(next);
+            next++;
+        }
     }
 
     public bool ImportState(GoStateData d)
@@ -326,6 +570,10 @@ public class GoRules
         Dead.Clear();
         if (d.dead != null)
             foreach (int i in d.dead) Dead.Add(i);
+        ImportMoveLog(d.moveLogCsv);
+        int[] moveAt = CsvToBoard(d.moveAtCsv, expected);
+        if (moveAt != null) MoveAt = moveAt;
+        EnsureMoveAtForDisplay();
         history.Clear();
         posHashes.Clear();
         posHashes.Add(Hash(new int[Size * Size]));
