@@ -11,12 +11,15 @@ public class GoGame : MonoBehaviour
     GoRules rules;
     int boardSize = 19;
     bool vsAI = false;
+    bool inStudyMode = false;
     bool aiBusy = false;
     bool inMenu = true;
 
-    // 开局设置（主界面选择）
+    const int StudyBoardSize = 19;
+    const string StudySaveKey = "GoStudySave";
+
+    // 人机对弈开局设置（进入对局前选定，局内不可改）
     int sizeChoice = 2;      // 0=9路 1=13路 2=19路
-    int modeChoice = 0;      // 0=双人 1=人机
     int colorChoice = 0;     // 0=执黑 1=执白 2=猜先
     float komi = 7.5f;
     int handicap = 0;
@@ -32,13 +35,13 @@ public class GoGame : MonoBehaviour
     Sprite stoneBlack, stoneWhite, deadXSpr, ringSpr;
 
     Font font;
-    Text turnText, statsText, msgText, scoreText, modeBtnText;
+    Text turnText, statsText, msgText, scoreText;
     GameObject passBtn, undoBtn, resignBtn, resumeBtn, scoreBtn;
     Coroutine msgCo;
 
     // 主界面
-    GameObject menuCanvas;
-    List<Button> optSize, optMode, optColor;
+    GameObject menuCanvas, mainPanel, aiSetupPanel;
+    List<Button> optSize, optColor;
     Text komiValText, handiValText;
 
     static readonly Color Ink = new Color(0.91f, 0.86f, 0.77f);
@@ -75,46 +78,120 @@ public class GoGame : MonoBehaviour
         BuildBoard();
         BuildUI();
         BuildMenu();
-        ShowMenu();
+        ShowMainMenu();
     }
 
     /* ---------------- 对局流程 ---------------- */
 
-    void StartGame()
+    void StartStudyGame()
     {
-        boardSize = sizeChoice == 0 ? 9 : sizeChoice == 1 ? 13 : 19;
-        vsAI = modeChoice == 1;
-        if (vsAI)
+        inStudyMode = true;
+        vsAI = false;
+        boardSize = StudyBoardSize;
+        aiBusy = false;
+        StopAllCoroutines();
+
+        if (PlayerPrefs.HasKey(StudySaveKey))
         {
-            humanColor = colorChoice == 0 ? GoRules.BLACK
-                       : colorChoice == 1 ? GoRules.WHITE
-                       : (Random.value < 0.5f ? GoRules.BLACK : GoRules.WHITE);
+            var data = JsonUtility.FromJson<GoStateData>(PlayerPrefs.GetString(StudySaveKey));
+            if (rules.ImportState(data))
+            {
+                rules.ResumeRecording();
+                Flash("已恢复打谱进度");
+            }
+            else
+            {
+                rules.Reset(boardSize);
+                rules.Komi = komi;
+                Flash("存档损坏，已重新开始");
+            }
         }
-        else humanColor = GoRules.BLACK;
+        else
+        {
+            rules.Reset(boardSize);
+            rules.Komi = komi;
+        }
+
+        EnterGame();
+    }
+
+    void StartAiGame()
+    {
+        inStudyMode = false;
+        vsAI = true;
+        boardSize = sizeChoice == 0 ? 9 : sizeChoice == 1 ? 13 : 19;
+        humanColor = colorChoice == 0 ? GoRules.BLACK
+                   : colorChoice == 1 ? GoRules.WHITE
+                   : (Random.value < 0.5f ? GoRules.BLACK : GoRules.WHITE);
 
         aiBusy = false;
         StopAllCoroutines();
         rules.Reset(boardSize);
         rules.Komi = komi;
         if (handicap > 0) rules.SetupHandicap(HandicapPoints(boardSize, handicap));
-        BuildBoard();
-        inMenu = false;
-        menuCanvas.SetActive(false);
-        if (vsAI)
-            Flash(colorChoice == 2
-                ? "猜先结果：你" + (humanColor == GoRules.BLACK ? "执黑" : "执白")
-                : humanColor == GoRules.BLACK ? "你执黑" : "你执白");
-        Refresh();
-        if (vsAI && rules.Result == null && rules.Phase == GoPhase.Play && rules.Turn == aiColor)
+
+        EnterGame();
+        Flash(colorChoice == 2
+            ? "猜先结果：你" + (humanColor == GoRules.BLACK ? "执黑" : "执白")
+            : humanColor == GoRules.BLACK ? "你执黑" : "你执白");
+        if (rules.Result == null && rules.Phase == GoPhase.Play && rules.Turn == aiColor)
             StartCoroutine(AiTurn());
     }
 
-    void ShowMenu()
+    void EnterGame()
+    {
+        BuildBoard();
+        inMenu = false;
+        menuCanvas.SetActive(false);
+        Refresh();
+    }
+
+    void SaveStudyProgress()
+    {
+        if (!inStudyMode) return;
+        var data = rules.ExportState();
+        // 打谱存档始终保存为可继续落子的对局状态
+        data.phase = (int)GoPhase.Play;
+        data.passes = 0;
+        data.result = null;
+        data.dead = new int[0];
+        PlayerPrefs.SetString(StudySaveKey, JsonUtility.ToJson(data));
+        PlayerPrefs.Save();
+    }
+
+    void ReturnToMainMenu()
+    {
+        if (inStudyMode) SaveStudyProgress();
+        inStudyMode = false;
+        vsAI = false;
+        aiBusy = false;
+        StopAllCoroutines();
+        ShowMainMenu();
+    }
+
+    void ShowMainMenu()
     {
         inMenu = true;
         menuCanvas.SetActive(true);
-        SyncMenu();
-        Refresh();
+        mainPanel.SetActive(true);
+        aiSetupPanel.SetActive(false);
+        if (ghostSr != null) ghostSr.enabled = false;
+    }
+
+    void ShowAiSetup()
+    {
+        mainPanel.SetActive(false);
+        aiSetupPanel.SetActive(true);
+        SyncAiSetup();
+    }
+
+    static void QuitGame()
+    {
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#else
+        Application.Quit();
+#endif
     }
 
     void HumanPlay(int x, int y)
@@ -166,7 +243,8 @@ public class GoGame : MonoBehaviour
     void Undo()
     {
         if (aiBusy || inMenu) return;
-        if (!rules.Undo(vsAI ? 2 : 1)) { Flash("没有可悔的棋"); return; }
+        int steps = vsAI ? 2 : 1;
+        if (!rules.Undo(steps)) { Flash("没有可悔的棋"); return; }
         Flash("已悔棋");
         Refresh();
         if (vsAI && rules.Phase == GoPhase.Play && rules.Turn == aiColor)
@@ -447,15 +525,7 @@ public class GoGame : MonoBehaviour
         msgText = MakeText(pt, "", 14, Accent, TextAnchor.MiddleCenter);
         scoreText = MakeText(pt, "", 15, Ink, TextAnchor.MiddleCenter);
 
-        var row1 = MakeRow(pt, 34f);
-        MakeButton(row1, "9 路", 32f, () => { sizeChoice = 0; StartGame(); });
-        MakeButton(row1, "13 路", 32f, () => { sizeChoice = 1; StartGame(); });
-        MakeButton(row1, "19 路", 32f, () => { sizeChoice = 2; StartGame(); });
-
-        var modeBtn = MakeButton(pt, "", 34f, () => { modeChoice = 1 - modeChoice; StartGame(); });
-        modeBtnText = modeBtn.GetComponentInChildren<Text>();
-
-        MakeButton(pt, "返回主界面", 36f, ShowMenu);
+        MakeButton(pt, "返回主界面", 36f, ReturnToMainMenu);
 
         var row2 = MakeRow(pt, 34f);
         undoBtn = MakeButton(row2, "悔棋", 32f, Undo).gameObject;
@@ -490,59 +560,85 @@ public class GoGame : MonoBehaviour
         brt.anchorMin = Vector2.zero; brt.anchorMax = Vector2.one;
         brt.sizeDelta = Vector2.zero; brt.anchoredPosition = Vector2.zero;
 
-        var panel = new GameObject("MenuPanel");
+        mainPanel = BuildMenuPanel("MainPanel", 380f, 420f, pt =>
+        {
+            MakeText(pt, "围  棋", 42, Ink, TextAnchor.MiddleCenter);
+            MakeText(pt, "请选择模式", 14, Dim, TextAnchor.MiddleCenter);
+
+            var study = MakeButton(pt, "打  谱", 52f, StartStudyGame);
+            study.GetComponent<Image>().color = Accent;
+            StyleAccentLabel(study);
+
+            MakeButton(pt, "人机对弈", 52f, ShowAiSetup);
+
+            var quit = MakeButton(pt, "退  出", 52f, QuitGame);
+            quit.GetComponentInChildren<Text>().color = Dim;
+        });
+
+        aiSetupPanel = BuildMenuPanel("AiSetupPanel", 470f, 620f, pt =>
+        {
+            MakeText(pt, "人机对弈", 36, Ink, TextAnchor.MiddleCenter);
+            MakeText(pt, "开局前选定棋盘与规则，进入对局后不可更改", 13, Dim, TextAnchor.MiddleCenter);
+
+            MakeText(pt, "棋盘", 14, Dim, TextAnchor.MiddleCenter);
+            optSize = MakeOptions(pt, new[] { "9 路", "13 路", "19 路" }, i => sizeChoice = i);
+
+            MakeText(pt, "执子", 14, Dim, TextAnchor.MiddleCenter);
+            optColor = MakeOptions(pt, new[] { "执黑先行", "执白后行", "猜先" }, i => colorChoice = i);
+
+            MakeText(pt, "贴目", 14, Dim, TextAnchor.MiddleCenter);
+            komiValText = MakeStepper(pt,
+                () => komi = Mathf.Max(0f, komi - 0.5f),
+                () => komi = Mathf.Min(15f, komi + 0.5f));
+
+            MakeText(pt, "让子（黑方预先布子，白方先下）", 14, Dim, TextAnchor.MiddleCenter);
+            handiValText = MakeStepper(pt,
+                () => handicap = Mathf.Max(0, handicap - 1),
+                () => handicap = Mathf.Min(9, handicap + 1));
+
+            var start = MakeButton(pt, "开始对局", 46f, StartAiGame);
+            start.GetComponent<Image>().color = Accent;
+            StyleAccentLabel(start);
+
+            MakeButton(pt, "返回", 40f, ShowMainMenu);
+        });
+        aiSetupPanel.SetActive(false);
+    }
+
+    GameObject BuildMenuPanel(string name, float width, float height, System.Action<Transform> build)
+    {
+        var panel = new GameObject(name);
         panel.transform.SetParent(menuCanvas.transform, false);
         var pimg = panel.AddComponent<Image>();
         pimg.color = new Color(0.14f, 0.11f, 0.08f, 1f);
         var prt = panel.GetComponent<RectTransform>();
         prt.anchorMin = prt.anchorMax = new Vector2(0.5f, 0.5f);
         prt.pivot = new Vector2(0.5f, 0.5f);
-        prt.sizeDelta = new Vector2(470f, 640f);
+        prt.sizeDelta = new Vector2(width, height);
         prt.anchoredPosition = Vector2.zero;
 
         var vlg = panel.AddComponent<VerticalLayoutGroup>();
         vlg.padding = new RectOffset(30, 30, 24, 24);
-        vlg.spacing = 9f;
+        vlg.spacing = 10f;
         vlg.childAlignment = TextAnchor.UpperCenter;
         vlg.childControlWidth = true;
         vlg.childControlHeight = true;
         vlg.childForceExpandWidth = true;
         vlg.childForceExpandHeight = false;
-        var pt = panel.transform;
-
-        MakeText(pt, "围  棋", 42, Ink, TextAnchor.MiddleCenter);
-        MakeText(pt, "对 局 设 置", 14, Dim, TextAnchor.MiddleCenter);
-
-        MakeText(pt, "棋盘", 14, Dim, TextAnchor.MiddleCenter);
-        optSize = MakeOptions(pt, new[] { "9 路", "13 路", "19 路" }, i => sizeChoice = i);
-
-        MakeText(pt, "模式", 14, Dim, TextAnchor.MiddleCenter);
-        optMode = MakeOptions(pt, new[] { "双人对弈", "人机对战" }, i => modeChoice = i);
-
-        MakeText(pt, "执子（人机模式有效）", 14, Dim, TextAnchor.MiddleCenter);
-        optColor = MakeOptions(pt, new[] { "执黑先行", "执白后行", "猜先" }, i => colorChoice = i);
-
-        MakeText(pt, "贴目", 14, Dim, TextAnchor.MiddleCenter);
-        komiValText = MakeStepper(pt,
-            () => komi = Mathf.Max(0f, komi - 0.5f),
-            () => komi = Mathf.Min(15f, komi + 0.5f));
-
-        MakeText(pt, "让子（黑方预先布子，白方先下）", 14, Dim, TextAnchor.MiddleCenter);
-        handiValText = MakeStepper(pt,
-            () => handicap = Mathf.Max(0, handicap - 1),
-            () => handicap = Mathf.Min(9, handicap + 1));
-
-        var start = MakeButton(pt, "开 始 对 局", 46f, StartGame);
-        start.GetComponent<Image>().color = Accent;
-        var st = start.GetComponentInChildren<Text>();
-        st.color = new Color(0.11f, 0.09f, 0.07f);
-        st.fontSize = 18;
+        build(panel.transform);
+        return panel;
     }
 
-    void SyncMenu()
+    static void StyleAccentLabel(Button btn)
+    {
+        var t = btn.GetComponentInChildren<Text>();
+        t.color = new Color(0.11f, 0.09f, 0.07f);
+        t.fontSize = 18;
+    }
+
+    void SyncAiSetup()
     {
         PaintOptions(optSize, sizeChoice);
-        PaintOptions(optMode, modeChoice);
         PaintOptions(optColor, colorChoice);
         komiValText.text = $"贴 {komi:0.0} 目";
         handiValText.text = handicap == 0 ? "不让子" : $"让 {handicap} 子";
@@ -573,7 +669,7 @@ public class GoGame : MonoBehaviour
     Text MakeStepper(Transform parent, UnityEngine.Events.UnityAction onMinus, UnityEngine.Events.UnityAction onPlus)
     {
         var row = MakeRow(parent, 36f);
-        var minus = MakeButton(row, "－", 34f, () => { onMinus(); SyncMenu(); });
+        var minus = MakeButton(row, "－", 34f, () => { onMinus(); SyncAiSetup(); });
         SetFixedWidth(minus, 70f);
 
         var tgo = new GameObject("Val");
@@ -585,7 +681,7 @@ public class GoGame : MonoBehaviour
         var le = tgo.AddComponent<LayoutElement>();
         le.flexibleWidth = 1f;
 
-        var plus = MakeButton(row, "＋", 34f, () => { onPlus(); SyncMenu(); });
+        var plus = MakeButton(row, "＋", 34f, () => { onPlus(); SyncAiSetup(); });
         SetFixedWidth(plus, 70f);
         return t;
     }
@@ -708,12 +804,18 @@ public class GoGame : MonoBehaviour
         else
         {
             string who = rules.Turn == GoRules.BLACK ? "黑棋" : "白棋";
-            string side = vsAI ? (rules.Turn == humanColor ? "（你）" : "（AI）") : "";
-            turnText.text = who + "落子" + side;
+            if (inStudyMode)
+                turnText.text = who + "落子";
+            else
+            {
+                string side = rules.Turn == humanColor ? "（你）" : "（AI）";
+                turnText.text = who + "落子" + side;
+            }
         }
 
-        string phase = rules.Phase == GoPhase.Play ? "对局中" : rules.Phase == GoPhase.Scoring ? "数子" : "终局";
-        statsText.text = $"手数 {rules.MoveCount}    状态 {phase}\n黑提子 {rules.Captures[GoRules.BLACK]}    白提子 {rules.Captures[GoRules.WHITE]}";
+        string modeLabel = inStudyMode ? "打谱" : "人机对弈";
+        string phase = rules.Phase == GoPhase.Play ? "进行中" : rules.Phase == GoPhase.Scoring ? "数子" : "终局";
+        statsText.text = $"{modeLabel} · {boardSize} 路 · 手数 {rules.MoveCount} · {phase}\n黑提子 {rules.Captures[GoRules.BLACK]}    白提子 {rules.Captures[GoRules.WHITE]}";
 
         if (rules.Phase != GoPhase.Play)
         {
@@ -728,7 +830,5 @@ public class GoGame : MonoBehaviour
         resignBtn.SetActive(playing);
         resumeBtn.SetActive(rules.Phase == GoPhase.Scoring);
         scoreBtn.SetActive(rules.Phase == GoPhase.Scoring);
-
-        if (modeBtnText != null) modeBtnText.text = vsAI ? "模式：人机对战" : "模式：双人对弈";
     }
 }

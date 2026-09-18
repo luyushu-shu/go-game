@@ -2,6 +2,21 @@ using System.Collections.Generic;
 
 public enum GoPhase { Play, Scoring, Over }
 
+// 局面快照，供打谱进度存档
+[System.Serializable]
+public class GoStateData
+{
+    public int size;
+    public int[] board;
+    public string boardCsv;  // JsonUtility 对 int[] 反序列化不稳定，用 CSV 备份
+    public int turn, passes, moveCount, lastMove;
+    public int capBlack, capWhite;
+    public int phase;
+    public string result;
+    public int[] dead;
+    public float komi;
+}
+
 // 围棋规则引擎：提子、打劫（全局同形禁着）、自杀拦截、双停数子。
 // 纯 C# 实现，不依赖 Unity，便于单测与 AI 推演。
 public class GoRules
@@ -245,5 +260,85 @@ public class GoRules
         float diff = bs > ws ? bs - ws : ws - bs;
         Result = (bs > ws ? "黑方胜 " : "白方胜 ") + diff.ToString("0.0") + " 目";
         Phase = GoPhase.Over;
+    }
+
+    static string BoardToCsv(int[] b)
+    {
+        var parts = new string[b.Length];
+        for (int i = 0; i < b.Length; i++) parts[i] = b[i].ToString();
+        return string.Join(",", parts);
+    }
+
+    static int[] CsvToBoard(string csv, int expectedLen)
+    {
+        if (string.IsNullOrEmpty(csv)) return null;
+        var parts = csv.Split(',');
+        if (parts.Length != expectedLen) return null;
+        var b = new int[parts.Length];
+        for (int i = 0; i < parts.Length; i++)
+            if (!int.TryParse(parts[i], out b[i])) return null;
+        return b;
+    }
+
+    public GoStateData ExportState()
+    {
+        var deadArr = new int[Dead.Count];
+        Dead.CopyTo(deadArr);
+        var boardCopy = (int[])Board.Clone();
+        return new GoStateData
+        {
+            size = Size,
+            board = boardCopy,
+            boardCsv = BoardToCsv(boardCopy),
+            turn = Turn,
+            passes = Passes,
+            moveCount = MoveCount,
+            lastMove = LastMove,
+            capBlack = Captures[BLACK],
+            capWhite = Captures[WHITE],
+            phase = (int)Phase,
+            result = Result,
+            dead = deadArr,
+            komi = Komi
+        };
+    }
+
+    public bool ImportState(GoStateData d)
+    {
+        if (d == null || d.size <= 0) return false;
+        int expected = d.size * d.size;
+        int[] board = d.board;
+        if (board == null || board.Length != expected)
+            board = CsvToBoard(d.boardCsv, expected);
+        if (board == null) return false;
+
+        Reset(d.size);
+        Komi = d.komi;
+        System.Array.Copy(board, Board, expected);
+        Turn = d.turn;
+        Passes = d.passes;
+        MoveCount = d.moveCount;
+        LastMove = d.lastMove;
+        Captures[BLACK] = d.capBlack;
+        Captures[WHITE] = d.capWhite;
+        Phase = (GoPhase)d.phase;
+        Result = d.result;
+        Dead.Clear();
+        if (d.dead != null)
+            foreach (int i in d.dead) Dead.Add(i);
+        history.Clear();
+        posHashes.Clear();
+        posHashes.Add(Hash(new int[Size * Size]));
+        posHashes.Add(Hash(Board));
+        return true;
+    }
+
+    // 打谱恢复：回到可落子的对局状态
+    public void ResumeRecording()
+    {
+        Phase = GoPhase.Play;
+        Passes = 0;
+        Result = null;
+        Dead.Clear();
     }
 }
