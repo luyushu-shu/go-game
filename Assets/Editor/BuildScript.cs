@@ -1,4 +1,5 @@
 using UnityEditor;
+using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -18,6 +19,20 @@ public static class BuildScript
         if (!AssetDatabase.IsValidFolder(sceneDir))
             AssetDatabase.CreateFolder("Assets", "Scenes");
         var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+        var manifestObject = new GameObject("QiyiRuntimeAssetManifest");
+        var manifest = manifestObject.AddComponent<GoRuntimeAssetManifest>();
+        manifest.AssignAssets(
+            LoadRequired<Sprite>("Assets/Art/UI/Background/qiyi_ink_room_2048.png"),
+            LoadRequired<Sprite>("Assets/Art/UI/Background/qiyi_mountain_silhouette_2048.png"),
+            LoadRequired<Sprite>("Assets/Art/UI/Background/qiyi_bamboo_shadow_1024.png"),
+            LoadRequired<AudioClip>("Assets/Art/Audio/button_click.wav"),
+            LoadRequired<AudioClip>("Assets/Art/Audio/button_confirm.wav"),
+            LoadRequired<AudioClip>("Assets/Art/Audio/stone_place.wav"),
+            LoadRequired<AudioClip>("Assets/Art/Audio/stone_capture.wav"),
+            LoadRequired<AudioClip>("Assets/Art/Audio/clock_warning.wav"),
+            LoadRequired<AudioClip>("Assets/Art/Audio/game_end.wav"),
+            LoadRequired<AudioClip>("Assets/Art/Audio/bgm_study.ogg"),
+            LoadRequired<AudioClip>("Assets/Art/Audio/bgm_review.ogg"));
         EditorSceneManager.SaveScene(scene, scenePath);
         EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(scenePath, true) };
 
@@ -38,5 +53,13 @@ public static class BuildScript
             Debug.LogError("BUILD FAILED: " + report.summary.result);
             if (Application.isBatchMode) EditorApplication.Exit(1);
         }
+    }
+
+    static T LoadRequired<T>(string assetPath) where T : Object
+    {
+        var asset = AssetDatabase.LoadAssetAtPath<T>(assetPath);
+        if (asset == null)
+            throw new BuildFailedException("Missing required Qiyi runtime asset: " + assetPath);
+        return asset;
     }
 }

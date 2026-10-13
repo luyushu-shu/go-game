@@ -124,7 +124,64 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
+--- !u!1 &1300737119
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 7
+  m_Component:
+  - component: {fileID: 1300737121}
+  - component: {fileID: 1300737120}
+  m_Layer: 0
+  m_HasEditorInfo: 1
+  m_Name: QiyiRuntimeAssetManifest
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1300737120
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1300737119}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1fce27d2f8bf4de4aa314c4af613ec34, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  inkRoomBackground: {fileID: 21300000, guid: a38f469d527cede4e9bf56d3f1fb497f, type: 3}
+  mountainSilhouette: {fileID: 21300000, guid: 4e386381adf2e144d9309d5ed07ceef1, type: 3}
+  bambooShadow: {fileID: 21300000, guid: 1cb8be94cc507bc479f0373577e0e4fe, type: 3}
+  buttonClick: {fileID: 8300000, guid: bdece4baba74ffd4ebac8db43f778451, type: 3}
+  buttonConfirm: {fileID: 8300000, guid: 45035fb91bd9050408ba16e3b6ceae3b, type: 3}
+  stonePlace: {fileID: 8300000, guid: ba87c8ca587986140964457fd51da2b6, type: 3}
+  stoneCapture: {fileID: 8300000, guid: e5e81ae257a05a3478aff9484d2d0cf2, type: 3}
+  clockWarning: {fileID: 8300000, guid: a44a903fc480e574fb9b67b6782fe69b, type: 3}
+  gameEnd: {fileID: 8300000, guid: a3665d5287def58419a5d5e20f337266, type: 3}
+  bgmStudy: {fileID: 8300000, guid: bfe6614ba8735364f9585fbfe8636647, type: 3}
+  bgmReview: {fileID: 8300000, guid: 631cbc57b061b394889da66e7d089318, type: 3}
+--- !u!4 &1300737121
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1300737119}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
-  m_Roots: []
+  m_Roots:
+  - {fileID: 1300737121}

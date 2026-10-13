@@ -1154,7 +1154,7 @@ public class GoGame : MonoBehaviour
         var backgroundImage = background.AddComponent<Image>();
         backgroundImage.sprite = LoadArtSprite(
             "Assets/Art/UI/Background/qiyi_ink_room_2048.png",
-            "UI/Background/qiyi_ink_room_2048");
+            GoRuntimeAssetManifest.InkRoomBackgroundKey);
         backgroundImage.color = backgroundImage.sprite != null
             ? new Color(1f, 1f, 1f, 0.40f) : uiTheme.Ink900;
         backgroundImage.raycastTarget = false;
@@ -1165,10 +1165,10 @@ public class GoGame : MonoBehaviour
 
         AddBackgroundSprite(sceneBackgroundLayer.transform, "MountainSilhouette",
             "Assets/Art/UI/Background/qiyi_mountain_silhouette_2048.png",
-            "UI/Background/qiyi_mountain_silhouette_2048", 0.22f);
+            GoRuntimeAssetManifest.MountainSilhouetteKey, 0.22f);
         AddBackgroundSprite(sceneBackgroundLayer.transform, "BambooShadow",
             "Assets/Art/UI/Background/qiyi_bamboo_shadow_1024.png",
-            "UI/Background/qiyi_bamboo_shadow_1024", 0.18f);
+            GoRuntimeAssetManifest.BambooShadowKey, 0.18f);
 
         mainCanvasLayer = CreateCanvasLayer("MainCanvas", 0, true);
         modalCanvasLayer = CreateCanvasLayer("ModalCanvas", 100, true);
@@ -1199,24 +1199,11 @@ public class GoGame : MonoBehaviour
 
     Sprite LoadArtSprite(string assetPath, string resourceKey)
     {
-        var sprite = Resources.Load<Sprite>(resourceKey);
+        Sprite sprite = null;
+        if (GoRuntimeAssetManifest.Instance != null)
+            sprite = GoRuntimeAssetManifest.Instance.GetBackground(resourceKey);
+        if (sprite == null) sprite = Resources.Load<Sprite>(resourceKey);
         if (sprite == null) sprite = Resources.Load<Sprite>("Art/" + resourceKey);
-
-#if UNITY_EDITOR
-        if (sprite == null)
-            sprite = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(assetPath);
-        if (sprite == null)
-        {
-            var texture = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(assetPath);
-            if (texture != null)
-            {
-                sprite = Sprite.Create(texture,
-                    new Rect(0f, 0f, texture.width, texture.height),
-                    new Vector2(0.5f, 0.5f), 100f);
-                sprite.name = texture.name + "_RuntimeSprite";
-            }
-        }
-#endif
 
         return sprite;
     }
@@ -2201,7 +2188,7 @@ public class GoGame : MonoBehaviour
             MakeText(pt, "围  棋", 42, Ink, TextAnchor.MiddleCenter);
             MakeText(pt, "请选择模式", 14, Dim, TextAnchor.MiddleCenter);
 
-            var study = MakeButton(pt, "打  谱", 52f, StartStudyGame);
+            var study = MakeButton(pt, "打  谱", 52f, StartStudyGame, false);
             study.GetComponent<Image>().color = Accent;
             StyleAccentLabel(study);
 
@@ -2241,7 +2228,7 @@ public class GoGame : MonoBehaviour
             llmKeyInput.contentType = InputField.ContentType.Password;
             llmKeyInput.onEndEdit.AddListener(v => GoLlmAi.ApiKey = v);
 
-            var start = MakeButton(pt, "开始对局", 46f, StartAiGame);
+            var start = MakeButton(pt, "开始对局", 46f, StartAiGame, false);
             start.GetComponent<Image>().color = Accent;
             StyleAccentLabel(start);
 
@@ -2954,11 +2941,12 @@ public class GoGame : MonoBehaviour
         return go.transform;
     }
 
-    Button MakeButton(Transform parent, string label, float height, UnityEngine.Events.UnityAction cb)
+    Button MakeButton(Transform parent, string label, float height,
+        UnityEngine.Events.UnityAction cb, bool playClickSound = true)
     {
         UnityEngine.Events.UnityAction wrapped = () =>
         {
-            audioManager?.PlaySfx("button_click");
+            if (playClickSound) audioManager?.PlaySfx("button_click");
             cb?.Invoke();
         };
         if (uiFactory != null)

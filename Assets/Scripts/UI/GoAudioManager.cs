@@ -151,20 +151,10 @@ public sealed class GoAudioManager : MonoBehaviour
         AudioClip clip;
         if (clipCache.TryGetValue(key, out clip)) return clip;
 
-        clip = Resources.Load<AudioClip>("Art/Audio/" + key);
+        if (GoRuntimeAssetManifest.Instance != null)
+            clip = GoRuntimeAssetManifest.Instance.GetAudio(key);
+        if (clip == null) clip = Resources.Load<AudioClip>("Art/Audio/" + key);
         if (clip == null) clip = Resources.Load<AudioClip>("Audio/" + key);
-
-#if UNITY_EDITOR
-        if (clip == null)
-        {
-            string[] extensions = { ".wav", ".ogg" };
-            for (int i = 0; i < extensions.Length && clip == null; i++)
-            {
-                clip = UnityEditor.AssetDatabase.LoadAssetAtPath<AudioClip>(
-                    "Assets/Art/Audio/" + key + extensions[i]);
-            }
-        }
-#endif
 
         if (clip != null) clipCache[key] = clip;
         return clip;
