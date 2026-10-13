@@ -20,14 +20,22 @@
 
 ### KataGo（可选）
 
-调用用户自行安装并配置的本机 [KataGo](https://github.com/lightvector/KataGo) GTP 引擎（10 路神经网络，g170e-b10c128）。当前仓库和 Windows 构建输出**不附带** KataGo 可执行程序或模型；发布时需用户自行取得并放到工程根目录的 `Tools/KataGo/`（或按实际部署路径配置）：
+调用用户自行安装并配置的本机 [KataGo](https://github.com/lightvector/KataGo) GTP 引擎（10 路神经网络，g170e-b10c128）。当前仓库和 Windows 构建输出**不附带** KataGo 可执行程序、模型或配置；用户需自行取得并放到 `GoGame.exe` 同级目录的 `Tools/KataGo/`：
 
-- `katago.exe`（优先 OpenCL / GPU）
-- `katago-eigen.exe`（CPU AVX2 备用）
-- `default_model.bin.gz`
-- `gtp.cfg`（每手约 400 visits / 最多 4 秒；本仓库提供示例配置）
+```text
+<GoGame.exe 所在目录>/
+  GoGame.exe
+  Tools/KataGo/
+    katago.exe
+    default_model.bin.gz
+    gtp.cfg
+```
 
-引擎二进制和模型不进 Git，也不会由构建脚本伪装成随包资源。首次用 OpenCL 时可能自动调优，第一手会稍慢。若程序、模型或配置不可用，界面会明确提示，并自动降级到本地 MCTS 引擎；不会阻塞普通对局。
+- `katago.exe`（优先使用；按 `GoKataGo.ResolvePaths` 规则，也可用同目录的 `katago-eigen.exe` 作为 CPU 备用）
+- `default_model.bin.gz`（精确文件名，不能用任意其他 `.bin` 文件代替）
+- `gtp.cfg`（精确文件名；每手约 400 visits / 最多 4 秒，本仓库提供示例配置）
+
+编辑器运行时的对应目录是项目根目录 `Tools/KataGo/`；Windows 成品运行时则是 `GoGame.exe` 同级的 `Tools/KataGo/`。构建脚本不会打包或复制 KataGo 文件，只会检查项目目录中上述精确文件是否存在并输出明确日志。首次用 OpenCL 时可能自动调优，第一手会稍慢。若程序、`default_model.bin.gz` 或 `gtp.cfg` 任一不可用，选择 KataGo 开局时会提示“未找到 KataGo，已切换本地引擎”，然后正常使用本地 MCTS；不会阻塞普通对局。
 
 ### 本地引擎（MCTS）
 

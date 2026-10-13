@@ -90,21 +90,35 @@ public static class BuildScript
     static void LogOptionalKataGoStatus()
     {
         const string dir = "Tools/KataGo";
-        bool program = System.IO.File.Exists(dir + "/katago.exe")
-            || System.IO.File.Exists(dir + "/katago-eigen.exe");
-        bool model = System.IO.Directory.Exists(dir)
-            && System.IO.Directory.GetFiles(
-                dir, "*.bin*", System.IO.SearchOption.TopDirectoryOnly).Length > 0;
-        if (!program || !model)
+        string katagoPath = System.IO.Path.Combine(dir, "katago.exe");
+        string eigenPath = System.IO.Path.Combine(dir, "katago-eigen.exe");
+        string modelPath = System.IO.Path.Combine(dir, "default_model.bin.gz");
+        string cfgPath = System.IO.Path.Combine(dir, "gtp.cfg");
+        bool hasKatago = System.IO.File.Exists(katagoPath);
+        bool hasEigen = System.IO.File.Exists(eigenPath);
+        bool hasModel = System.IO.File.Exists(modelPath);
+        bool hasConfig = System.IO.File.Exists(cfgPath);
+
+        var missing = new System.Collections.Generic.List<string>();
+        if (!hasKatago && !hasEigen) missing.Add("katago.exe 或 katago-eigen.exe");
+        if (!hasModel) missing.Add("default_model.bin.gz");
+        if (!hasConfig) missing.Add("gtp.cfg");
+
+        if (missing.Count > 0)
         {
             Debug.LogWarning(
-                "RELEASE CHECK: KataGo is not bundled in this build. "
-                + "Users must install/configure the executable and model under Tools/KataGo; "
-                + "the game will fall back to the local engine when unavailable.");
+                "RELEASE CHECK: KataGo is optional and is not bundled in this build. "
+                + "Missing in Tools/KataGo: " + string.Join(", ", missing.ToArray()) + ". "
+                + "Install the exact runtime files yourself; unavailable games automatically "
+                + "fall back to the local engine.");
         }
         else
         {
-            Debug.Log("RELEASE CHECK: KataGo executable and model detected in Tools/KataGo.");
+            string executable = hasKatago ? "katago.exe" : "katago-eigen.exe";
+            Debug.Log(
+                "RELEASE CHECK: KataGo files detected in Tools/KataGo: "
+                + executable + ", default_model.bin.gz, gtp.cfg. "
+                + "They are not bundled into the build.");
         }
     }
 }

@@ -366,6 +366,7 @@ public class GoGame : MonoBehaviour
     {
         InvalidateAiTurn();
         StopPlayClock();
+        string startNotice = null;
         SyncTimeControlFromInputs();
         if (!timeControl.TryValidate(out string timeError))
         {
@@ -384,8 +385,9 @@ public class GoGame : MonoBehaviour
         }
         if (opponentChoice == 1 && !GoKataGo.IsAvailable())
         {
-            Flash(GoKataGo.InstallHint());
-            return;
+            opponentChoice = 0;
+            if (optOpponent != null) PaintOptions(optOpponent, opponentChoice);
+            startNotice = "未找到 KataGo，已切换本地引擎";
         }
         ClearResumedKifuSession();
         audioManager?.PlaySfx("button_confirm");
@@ -406,9 +408,10 @@ public class GoGame : MonoBehaviour
         StartPlayClock();
 
         EnterGame();
-        Flash(colorChoice == 2
+        string colorNotice = colorChoice == 2
             ? "猜先结果：你" + (humanColor == GoRules.BLACK ? "执黑" : "执白")
-            : humanColor == GoRules.BLACK ? "你执黑" : "你执白");
+            : humanColor == GoRules.BLACK ? "你执黑" : "你执白";
+        Flash(string.IsNullOrEmpty(startNotice) ? colorNotice : colorNotice + "\n" + startNotice);
         if (opponentChoice == 1) Flash("电脑由 KataGo 对弈");
         else if (opponentChoice == 2) Flash("电脑由大模型选点");
         if (rules.Result == null && rules.Phase == GoPhase.Play && rules.Turn == aiColor)

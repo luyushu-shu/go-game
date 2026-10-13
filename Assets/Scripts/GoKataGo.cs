@@ -86,7 +86,7 @@ public static class GoKataGo
     public static string InstallHint()
     {
         ResolvePaths();
-        return "请把 katago.exe 与 default_model.bin.gz 放到：\n" + Dir();
+        return "请把 katago.exe（或 katago-eigen.exe）、default_model.bin.gz 与 gtp.cfg 放到：\n" + Dir();
     }
 
     static string Dir()

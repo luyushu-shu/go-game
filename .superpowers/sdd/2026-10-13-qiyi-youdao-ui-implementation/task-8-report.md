@@ -54,3 +54,28 @@ Task 8 的代码、构建脚本、README 和测试资源交付已在发布提交
 | 修复后 Windows build | 未完成 | 两次尝试均被同一工作树残留的 Tuanjie 实例阻塞；`Logs/task8-repair-build-final.log` 明确记录该阻塞。未将旧的 `Builds/Windows/GoGame.exe` 冒充为本次修复产物。 |
 
 本轮已停止验证进程并清理临时锁文件与 `test_result.txt`。Play Mode、交互式三分辨率验收、标准 EditMode XML 和干净 Windows 启动仍未执行，不能宣称交互验收完成。
+
+## Task 8 第二轮新鲜修复（80f9ff6 后）
+
+### 修复内容
+
+- `GoGame.StartAiGame` 在用户选择 KataGo、但 `GoKataGo.IsAvailable()` 为 false 时，不再提前返回；本局 `opponentChoice` 改为本地引擎并同步设置页选项，随后继续创建棋局、计时和既有 `GoAiController` 流程。开局提示明确包含“未找到 KataGo，已切换本地引擎”。KataGo 可用时保留原路径，降级分支不会启动 KataGo 进程。
+- `GoKataGo.InstallHint` 补充精确的 `katago.exe`（或 `katago-eigen.exe`）、`default_model.bin.gz`、`gtp.cfg` 文件要求。
+- `BuildScript.LogOptionalKataGoStatus` 改为逐项检查 `katago.exe`/`katago-eigen.exe`、`default_model.bin.gz`、`gtp.cfg`，删除 `*.bin*` 泛匹配，并在缺失时逐项输出明确日志；仍明确说明构建不打包 KataGo。
+- README 现在按 `GoGame.exe` 同级目录精确说明 `Tools/KataGo/` 的运行时布局、编辑器目录映射、用户自行安装、不打包和不可用时自动使用本地 MCTS 的行为。
+- 未修改 Task 1–7 的规则、计时、AI 搜索、历史、SGF 或复盘核心逻辑。
+
+### 第二轮验证证据
+
+| 项目 | 结果 | 证据 |
+|---|---|---|
+| 静态断言 | PASS | 断言降级分支无提前 `return`、`opponentChoice=0`、明确提示存在；BuildScript 包含三个精确文件检查且无 `*.bin*`/`Directory.GetFiles`；README 成品目录与不打包/降级说明存在。 |
+| 修复后脚本编译 | PASS | `Logs/task8-round2-compile.log`：`Tundra build success`，无 `error CS`/Compilation failed，正常 batchmode 退出码 0。 |
+| 项目自定义 TestRunner | PASS | `Logs/task8-round2-custom-tests.log`：GoRules 11 项、GoSave 6 项、GoAI 均通过，含 `ALL TESTS PASSED SUCCESSFULLY!`；随后已清理 `test_result.txt`。 |
+| Windows build 尝试 | BUILD PASS，产物不计本轮新产物 | `Logs/task8-round2-build.log`：`Build Finished, Result: Success.`、`BUILD OK`，并输出精确 KataGo 缺失日志。构建前后 `Builds/Windows/GoGame.exe` 长度均为 464384、SHA-256 均为 `61263A2AAD52E1BE6961139F628D00EB2ABAF6799134F69F4062BC5E33178F1B`，写入时间也未变化，因此不将该旧 exe 作为本轮新产物证据。 |
+
+### 保留的环境限制
+
+- 按用户中止指令，本轮在上述验证后停止，不再运行新的测试或启动交互式编辑器。
+- Play Mode、1920×1080 / 1600×900 / 1366×768 的人工点击验收、标准 EditMode XML 和无 Unity 编辑器的干净 Windows 启动仍未执行。
+- 本轮 Windows build 日志报告成功，但最终 `GoGame.exe` 指纹未变化；发布验收仍需在可确认产物更新时间/指纹变化的环境重新生成并启动验证。
