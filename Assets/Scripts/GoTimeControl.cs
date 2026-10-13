@@ -83,40 +83,40 @@ public struct GoTimeControl
             case GoTimePreset.Unlimited:
                 if (MainTimeSeconds != 0)
                 {
-                    error = "Unlimited main time must be zero seconds.";
+                    error = "无限制本时必须为 0 秒。";
                     return false;
                 }
                 break;
             case GoTimePreset.FiveMinutes:
                 if (MainTimeSeconds != 5 * 60)
                 {
-                    error = "Five-minute main time must be 300 seconds.";
+                    error = "5 分钟本时必须为 300 秒。";
                     return false;
                 }
                 break;
             case GoTimePreset.OneHour:
                 if (MainTimeSeconds != 60 * 60)
                 {
-                    error = "One-hour main time must be 3600 seconds.";
+                    error = "1 小时本时必须为 3600 秒。";
                     return false;
                 }
                 break;
             case GoTimePreset.TwoHours:
                 if (MainTimeSeconds != 2 * 60 * 60)
                 {
-                    error = "Two-hour main time must be 7200 seconds.";
+                    error = "2 小时本时必须为 7200 秒。";
                     return false;
                 }
                 break;
             case GoTimePreset.Custom:
                 if (MainTimeSeconds < 60 || MainTimeSeconds > 600 * 60)
                 {
-                    error = "Custom main time must be between 1 and 600 minutes.";
+                    error = "自定义本时必须为 1–600 分钟。";
                     return false;
                 }
                 break;
             default:
-                error = "Unknown main time preset.";
+                error = "未知的本时预设。";
                 return false;
         }
 
@@ -125,28 +125,28 @@ public struct GoTimeControl
             case GoByoyomiPreset.None:
                 if (ByoyomiPeriods != 0 || ByoyomiSeconds != 0)
                 {
-                    error = "No byoyomi must have zero periods and zero seconds.";
+                    error = "无读秒必须为 0 段、0 秒。";
                     return false;
                 }
                 break;
             case GoByoyomiPreset.ThreeByThirty:
                 if (ByoyomiPeriods != 3 || ByoyomiSeconds != 30)
                 {
-                    error = "Three-by-thirty byoyomi must be 3 periods of 30 seconds.";
+                    error = "3×30 秒读秒必须为 3 段、每段 30 秒。";
                     return false;
                 }
                 break;
             case GoByoyomiPreset.FiveByThirty:
                 if (ByoyomiPeriods != 5 || ByoyomiSeconds != 30)
                 {
-                    error = "Five-by-thirty byoyomi must be 5 periods of 30 seconds.";
+                    error = "5×30 秒读秒必须为 5 段、每段 30 秒。";
                     return false;
                 }
                 break;
             case GoByoyomiPreset.FiveBySixty:
                 if (ByoyomiPeriods != 5 || ByoyomiSeconds != 60)
                 {
-                    error = "Five-by-sixty byoyomi must be 5 periods of 60 seconds.";
+                    error = "5×60 秒读秒必须为 5 段、每段 60 秒。";
                     return false;
                 }
                 break;
@@ -154,12 +154,12 @@ public struct GoTimeControl
                 if (ByoyomiPeriods < 1 || ByoyomiPeriods > 20 ||
                     ByoyomiSeconds < 5 || ByoyomiSeconds > 600)
                 {
-                    error = "Custom byoyomi must be 1 to 20 periods of 5 to 600 seconds.";
+                    error = "自定义读秒必须为 1–20 段、每段 5–600 秒。";
                     return false;
                 }
                 break;
             default:
-                error = "Unknown byoyomi preset.";
+                error = "未知的读秒预设。";
                 return false;
         }
 
@@ -171,7 +171,7 @@ public struct GoTimeControl
         switch (MainPreset)
         {
             case GoTimePreset.Unlimited:
-                return "不限时";
+                return "无限制";
             case GoTimePreset.FiveMinutes:
                 return "5分钟";
             case GoTimePreset.OneHour:

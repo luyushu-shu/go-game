@@ -128,10 +128,16 @@ public class GoGame : MonoBehaviour
     float komi = 7.5f;
     int handicap = 0;
     int opponentChoice = 1; // 0=本地引擎 1=KataGo 2=大模型
+    GoTimeControl timeControl = GoTimeControl.FromPreset(
+        GoTimePreset.Unlimited, GoByoyomiPreset.None);
     int humanColor = GoRules.BLACK;
     int aiColor => GoRules.Opp(humanColor);
     List<Button> optOpponent;
+    List<Button> optMainTime, optByoyomi;
     InputField llmKeyInput;
+    InputField customMainMinutesInput, customByoyomiPeriodsInput, customByoyomiSecondsInput;
+    GameObject customMainTimeRoot, customByoyomiRoot;
+    Text timeValidationText, byoyomiValidationText;
 
     Camera cam;
     Transform boardRoot;
@@ -188,6 +194,7 @@ public class GoGame : MonoBehaviour
     Button quickMuteButton;
     Slider settingsMasterSlider, settingsMusicSlider, settingsSfxSlider, settingsWarningSlider;
     Toggle settingsMuteToggle, settingsReduceMotionToggle;
+    Toggle settingsMoveNumbersToggle, settingsCoordinatesToggle, settingsTerritoryToggle;
     static readonly string ReduceMotionKey = "Qiyi.ReduceMotion";
 
     GoUiTheme uiTheme;
@@ -277,6 +284,13 @@ public class GoGame : MonoBehaviour
 
     void StartAiGame()
     {
+        SyncTimeControlFromInputs();
+        if (!timeControl.TryValidate(out string timeError))
+        {
+            SetTimeValidationMessage(timeError);
+            Flash("请先修正时间设置");
+            return;
+        }
         if (opponentChoice == 2 && !GoLlmAi.IsConfigured())
         {
             if (llmKeyInput != null) GoLlmAi.ApiKey = llmKeyInput.text;
@@ -1002,7 +1016,7 @@ public class GoGame : MonoBehaviour
         canvas.sortingOrder = sortingOrder;
         var scaler = layer.AddComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1440f, 900f);
+        scaler.referenceResolution = new Vector2(1920f, 1080f);
         scaler.matchWidthOrHeight = 0.5f;
         if (raycast) layer.AddComponent<GraphicRaycaster>();
         return layer;
@@ -1800,7 +1814,7 @@ public class GoGame : MonoBehaviour
         canvas.sortingOrder = 20;
         var scaler = menuCanvas.AddComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1440f, 900f);
+        scaler.referenceResolution = new Vector2(1920f, 1080f);
         scaler.matchWidthOrHeight = 0.5f;
         menuCanvas.AddComponent<GraphicRaycaster>();
 
@@ -1812,35 +1826,45 @@ public class GoGame : MonoBehaviour
         brt.anchorMin = Vector2.zero; brt.anchorMax = Vector2.one;
         brt.sizeDelta = Vector2.zero; brt.anchoredPosition = Vector2.zero;
 
-        mainPanel = BuildMenuPanel("MainPanel", 380f, 500f, pt =>
+        mainPanel = BuildMenuPanel("MainMenuPage", 420f, 600f, pt =>
         {
-            MakeText(pt, "围  棋", 42, Ink, TextAnchor.MiddleCenter);
-            MakeText(pt, "请选择模式", 14, Dim, TextAnchor.MiddleCenter);
+            MakeText(pt, "棋弈有道", 56, Ink, TextAnchor.MiddleCenter);
+            MakeText(pt, "宋式清雅 · 夜案棋局", 14, Dim, TextAnchor.MiddleCenter);
 
-            var study = MakeButton(pt, "打  谱", 52f, StartStudyGame, false);
+            var study = MakeButton(pt, "打谱", 64f, StartStudyGame, false);
+            SetFixedWidth(study, 280f);
             study.GetComponent<Image>().color = Accent;
             StyleAccentLabel(study);
 
-            MakeButton(pt, "人机对弈", 52f, ShowAiSetup);
-            MakeButton(pt, "历史棋谱", 52f, ShowHistoryPanel);
+            var ai = MakeButton(pt, "人机对弈", 64f, ShowAiSetup);
+            SetFixedWidth(ai, 280f);
+            var history = MakeButton(pt, "历史棋谱", 64f, ShowHistoryPanel);
+            SetFixedWidth(history, 280f);
 
-            var quit = MakeButton(pt, "退  出", 52f, QuitGame);
+            var quit = MakeButton(pt, "退出", 64f, QuitGame);
+            SetFixedWidth(quit, 280f);
             quit.GetComponentInChildren<Text>().color = Dim;
         });
+        mainPanel.GetComponent<VerticalLayoutGroup>().spacing = 16f;
 
-        aiSetupPanel = BuildMenuPanel("AiSetupPanel", 500f, 760f, pt =>
+        aiSetupPanel = BuildMenuPanel("AiSetupPage", 620f, 860f, pt =>
         {
             MakeText(pt, "人机对弈", 36, Ink, TextAnchor.MiddleCenter);
             MakeText(pt, "开局前选定棋盘与规则，进入对局后不可更改", 13, Dim, TextAnchor.MiddleCenter);
 
-            MakeText(pt, "棋盘", 14, Dim, TextAnchor.MiddleCenter);
-            optSize = MakeOptions(pt, new[] { "9 路", "13 路", "19 路" }, i => sizeChoice = i);
+            MakeText(pt, "棋盘尺寸", 14, Dim, TextAnchor.MiddleCenter);
+            optSize = MakeOptions(pt, new[] { "9路", "13路", "19路" }, i =>
+            {
+                sizeChoice = i;
+                SyncAiSetup();
+            });
 
-            MakeText(pt, "执子", 14, Dim, TextAnchor.MiddleCenter);
-            optColor = MakeOptions(pt, new[] { "执黑先行", "执白后行", "猜先" }, i => colorChoice = i);
-
-            MakeText(pt, "电脑对手", 14, Dim, TextAnchor.MiddleCenter);
-            optOpponent = MakeOptions(pt, new[] { "本地引擎", "KataGo", "大模型" }, i => opponentChoice = i);
+            MakeText(pt, "执棋", 14, Dim, TextAnchor.MiddleCenter);
+            optColor = MakeOptions(pt, new[] { "黑棋", "白棋", "猜先" }, i =>
+            {
+                colorChoice = i;
+                SyncAiSetup();
+            });
 
             MakeText(pt, "贴目", 14, Dim, TextAnchor.MiddleCenter);
             komiValText = MakeStepper(pt,
@@ -1851,6 +1875,27 @@ public class GoGame : MonoBehaviour
             handiValText = MakeStepper(pt,
                 () => handicap = Mathf.Max(0, handicap - 1),
                 () => handicap = Mathf.Min(9, handicap + 1));
+
+            MakeText(pt, "对局时间", 14, Dim, TextAnchor.MiddleCenter);
+            optMainTime = MakeOptions(pt,
+                new[] { "无限制", "5分钟", "1小时", "2小时", "自定义" },
+                SetMainTimePreset);
+            customMainTimeRoot = BuildCustomMainTime(pt);
+            timeValidationText = MakeText(pt, "", 12, uiTheme.Cinnabar, TextAnchor.MiddleLeft);
+
+            MakeText(pt, "读秒", 14, Dim, TextAnchor.MiddleCenter);
+            optByoyomi = MakeOptions(pt,
+                new[] { "无", "3×30秒", "5×30秒", "5×60秒", "自定义" },
+                SetByoyomiPreset);
+            customByoyomiRoot = BuildCustomByoyomi(pt);
+            byoyomiValidationText = MakeText(pt, "", 12, uiTheme.Cinnabar, TextAnchor.MiddleLeft);
+
+            MakeText(pt, "电脑对手", 14, Dim, TextAnchor.MiddleCenter);
+            optOpponent = MakeOptions(pt, new[] { "本地引擎", "KataGo", "大模型" }, i =>
+            {
+                opponentChoice = i;
+                SyncAiSetup();
+            });
 
             MakeText(pt, "大模型密钥（xAI / OpenAI 兼容，仅存本机）", 13, Dim, TextAnchor.MiddleCenter);
             llmKeyInput = MakeInputField(pt, "粘贴 API Key", 36f, false);
@@ -1923,6 +1968,7 @@ public class GoGame : MonoBehaviour
         BuildSettingsPanel();
         BuildSettingsButton();
         BuildVolumeQuickControl();
+        BuildVersionLabel();
         RegisterUiPages();
     }
 
@@ -1993,14 +2039,65 @@ public class GoGame : MonoBehaviour
                 audioManager != null && audioManager.IsMuted, SetMuteFromUi);
 
             MakeText(content.transform, "界面", 22, Ink, TextAnchor.MiddleLeft);
+            settingsMoveNumbersToggle = uiFactory.MakeToggle(content.transform, "MoveNumbersToggle",
+                "手数", showMoveNums, value =>
+                {
+                    showMoveNums = value;
+                    Refresh();
+                });
+            settingsCoordinatesToggle = uiFactory.MakeToggle(content.transform, "CoordinatesToggle",
+                "坐标", showCoords, value =>
+                {
+                    showCoords = value;
+                    Refresh();
+                });
+            settingsTerritoryToggle = uiFactory.MakeToggle(content.transform, "TerritoryToggle",
+                "形势", showTerritory, value =>
+                {
+                    showTerritory = value;
+                    Refresh();
+                });
             settingsReduceMotionToggle = uiFactory.MakeToggle(content.transform, "ReduceMotionToggle",
                 "减少动效", PlayerPrefs.GetInt(ReduceMotionKey, 0) != 0, SetReduceMotion);
-            MakeText(content.transform, "棋盘、AI引擎、快捷键和关于页面将在后续迁移阶段补齐。",
-                13, Dim, TextAnchor.UpperLeft);
+
+            MakeText(content.transform, "KataGo", 22, Ink, TextAnchor.MiddleLeft);
+            var kataStatus = MakeReadOnlyRow(content.transform, "KataGo 状态");
+            kataStatus.text = GetKataGoStatus();
+            var kataPath = MakeReadOnlyRow(content.transform, "KataGo 路径");
+            kataPath.text = "Tools/KataGo";
+            var kataModel = MakeReadOnlyRow(content.transform, "模型");
+            kataModel.text = "default_model.bin.gz";
+            var kataConfig = MakeReadOnlyRow(content.transform, "配置");
+            kataConfig.text = "gtp.cfg";
+            var benchmark = MakeReadOnlyRow(content.transform, "benchmark");
+            benchmark.text = "未运行";
+            MakeButton(content.transform, "运行 benchmark", 36f,
+                () => Flash("benchmark 尚未在设置页启动"));
+
+            MakeText(content.transform, "快捷键", 22, Ink, TextAnchor.MiddleLeft);
+            MakeReadOnlyRow(content.transform, "悔棋 / 停一手").text = "Ctrl+Z / Space";
+            MakeReadOnlyRow(content.transform, "数目 / 认输").text = "S / R";
+            MakeText(content.transform, "KataGo 状态仅显示：已就绪、未找到程序、未找到模型。",
+                12, Dim, TextAnchor.UpperLeft);
 
             MakeButton(pt, "返回", 40f, ShowMainMenu);
         });
         settingsPanel.SetActive(false);
+    }
+
+    string GetKataGoStatus()
+    {
+        if (GoKataGo.IsAvailable()) return "已就绪";
+
+        // GoKataGo remains the authority for readiness and process startup.
+        // This small display-only check distinguishes the two useful missing
+        // asset states without creating another KataGo configuration model.
+        string root = System.IO.Path.Combine(
+            System.IO.Directory.GetParent(Application.dataPath).FullName,
+            "Tools", "KataGo");
+        bool modelExists = System.IO.File.Exists(
+            System.IO.Path.Combine(root, "default_model.bin.gz"));
+        return modelExists ? "未找到程序" : "未找到模型";
     }
 
     Slider MakeSettingsSlider(Transform parent, string label, float value,
@@ -2018,12 +2115,23 @@ public class GoGame : MonoBehaviour
 
     void BuildSettingsButton()
     {
-        var button = MakeButton(menuCanvas.transform, "设置", 40f, ShowSettings);
-        SetFixedWidth(button, 92f);
+        var button = MakeButton(menuCanvas.transform, "⚙ 设置", 40f, ShowSettings);
+        SetFixedWidth(button, 116f);
         var rect = button.GetComponent<RectTransform>();
         rect.anchorMin = rect.anchorMax = new Vector2(1f, 1f);
         rect.pivot = new Vector2(1f, 1f);
         rect.anchoredPosition = new Vector2(-28f, -26f);
+    }
+
+    void BuildVersionLabel()
+    {
+        var version = MakeText(menuCanvas.transform, "版本号", 13, Dim, TextAnchor.MiddleLeft);
+        version.text = "版本 0.1.0";
+        var rect = version.rectTransform;
+        rect.anchorMin = rect.anchorMax = new Vector2(0f, 0f);
+        rect.pivot = new Vector2(0f, 0f);
+        rect.anchoredPosition = new Vector2(28f, 28f);
+        rect.sizeDelta = new Vector2(180f, 28f);
     }
 
     void BuildVolumeQuickControl()
@@ -2142,6 +2250,12 @@ public class GoGame : MonoBehaviour
         if (settingsReduceMotionToggle != null)
             settingsReduceMotionToggle.SetIsOnWithoutNotify(
                 PlayerPrefs.GetInt(ReduceMotionKey, 0) != 0);
+        if (settingsMoveNumbersToggle != null)
+            settingsMoveNumbersToggle.SetIsOnWithoutNotify(showMoveNums);
+        if (settingsCoordinatesToggle != null)
+            settingsCoordinatesToggle.SetIsOnWithoutNotify(showCoords);
+        if (settingsTerritoryToggle != null)
+            settingsTerritoryToggle.SetIsOnWithoutNotify(showTerritory);
         if (quickMuteButton != null)
         {
             var label = quickMuteButton.GetComponentInChildren<Text>();
@@ -2475,11 +2589,167 @@ public class GoGame : MonoBehaviour
     {
         PaintOptions(optSize, sizeChoice);
         PaintOptions(optColor, colorChoice);
+        PaintOptions(optMainTime, (int)timeControl.MainPreset);
+        PaintOptions(optByoyomi, (int)timeControl.ByoyomiPreset);
         if (optOpponent != null) PaintOptions(optOpponent, opponentChoice);
         komiValText.text = $"贴 {komi:0.0} 目";
         handiValText.text = handicap == 0 ? "不让子" : $"让 {handicap} 子";
         if (llmKeyInput != null && string.IsNullOrEmpty(llmKeyInput.text))
             llmKeyInput.text = PlayerPrefs.GetString("GoLlmKey", "");
+        if (customMainMinutesInput != null)
+            customMainMinutesInput.SetTextWithoutNotify(
+                Mathf.Max(1, timeControl.MainTimeSeconds / 60).ToString());
+        if (customByoyomiPeriodsInput != null)
+            customByoyomiPeriodsInput.SetTextWithoutNotify(
+                Mathf.Max(1, timeControl.ByoyomiPeriods).ToString());
+        if (customByoyomiSecondsInput != null)
+            customByoyomiSecondsInput.SetTextWithoutNotify(
+                Mathf.Max(5, timeControl.ByoyomiSeconds).ToString());
+        if (customMainTimeRoot != null)
+            customMainTimeRoot.SetActive(timeControl.MainPreset == GoTimePreset.Custom);
+        if (customByoyomiRoot != null)
+            customByoyomiRoot.SetActive(timeControl.ByoyomiPreset == GoByoyomiPreset.Custom);
+        SyncTimeControlFromInputs();
+    }
+
+    GameObject BuildCustomMainTime(Transform parent)
+    {
+        var root = new GameObject("CustomMainTime");
+        root.transform.SetParent(parent, false);
+        var row = root.AddComponent<HorizontalLayoutGroup>();
+        row.spacing = 8f;
+        row.childAlignment = TextAnchor.MiddleCenter;
+        row.childControlWidth = true;
+        row.childControlHeight = true;
+        row.childForceExpandWidth = false;
+        row.childForceExpandHeight = true;
+
+        MakeText(root.transform, "分钟（1–600）", 13, Dim, TextAnchor.MiddleLeft);
+        customMainMinutesInput = MakeInputField(root.transform, "例如 30", 36f, false);
+        customMainMinutesInput.contentType = InputField.ContentType.IntegerNumber;
+        SetFixedWidth(customMainMinutesInput, 120f);
+        customMainMinutesInput.onEndEdit.AddListener(_ =>
+        {
+            SyncTimeControlFromInputs();
+            ValidateTimeControlUi();
+        });
+        return root;
+    }
+
+    GameObject BuildCustomByoyomi(Transform parent)
+    {
+        var root = new GameObject("CustomByoyomi");
+        root.transform.SetParent(parent, false);
+        var row = root.AddComponent<HorizontalLayoutGroup>();
+        row.spacing = 8f;
+        row.childAlignment = TextAnchor.MiddleCenter;
+        row.childControlWidth = true;
+        row.childControlHeight = true;
+        row.childForceExpandWidth = false;
+        row.childForceExpandHeight = true;
+
+        MakeText(root.transform, "段数（1–20）", 13, Dim, TextAnchor.MiddleLeft);
+        customByoyomiPeriodsInput = MakeInputField(root.transform, "例如 5", 36f, false);
+        customByoyomiPeriodsInput.contentType = InputField.ContentType.IntegerNumber;
+        SetFixedWidth(customByoyomiPeriodsInput, 82f);
+        MakeText(root.transform, "每段秒数（5–600）", 13, Dim, TextAnchor.MiddleLeft);
+        customByoyomiSecondsInput = MakeInputField(root.transform, "例如 30", 36f, false);
+        customByoyomiSecondsInput.contentType = InputField.ContentType.IntegerNumber;
+        SetFixedWidth(customByoyomiSecondsInput, 92f);
+
+        UnityEngine.Events.UnityAction onEdit = () =>
+        {
+            SyncTimeControlFromInputs();
+            ValidateTimeControlUi();
+        };
+        customByoyomiPeriodsInput.onEndEdit.AddListener(_ => onEdit());
+        customByoyomiSecondsInput.onEndEdit.AddListener(_ => onEdit());
+        return root;
+    }
+
+    void SetMainTimePreset(int index)
+    {
+        var preset = (GoTimePreset)Mathf.Clamp(index, 0, 4);
+        var next = GoTimeControl.FromPreset(preset, timeControl.ByoyomiPreset);
+        if (timeControl.ByoyomiPreset == GoByoyomiPreset.Custom)
+        {
+            next.ByoyomiPeriods = timeControl.ByoyomiPeriods;
+            next.ByoyomiSeconds = timeControl.ByoyomiSeconds;
+        }
+        if (preset == GoTimePreset.Custom)
+            next.MainTimeSeconds = timeControl.MainTimeSeconds >= 60
+                ? timeControl.MainTimeSeconds : 60;
+        timeControl = next;
+        SyncAiSetup();
+    }
+
+    void SetByoyomiPreset(int index)
+    {
+        var preset = (GoByoyomiPreset)Mathf.Clamp(index, 0, 4);
+        var next = GoTimeControl.FromPreset(timeControl.MainPreset, preset);
+        if (timeControl.MainPreset == GoTimePreset.Custom)
+            next.MainTimeSeconds = timeControl.MainTimeSeconds >= 60
+                ? timeControl.MainTimeSeconds : 60;
+        if (preset == GoByoyomiPreset.Custom)
+        {
+            next.ByoyomiPeriods = timeControl.ByoyomiPeriods >= 1
+                ? timeControl.ByoyomiPeriods : 1;
+            next.ByoyomiSeconds = timeControl.ByoyomiSeconds >= 5
+                ? timeControl.ByoyomiSeconds : 5;
+        }
+        timeControl = next;
+        SyncAiSetup();
+    }
+
+    void SyncTimeControlFromInputs()
+    {
+        var next = timeControl;
+        if (next.MainPreset == GoTimePreset.Custom)
+        {
+            int minutes;
+            next.MainTimeSeconds = int.TryParse(
+                customMainMinutesInput != null ? customMainMinutesInput.text : "",
+                out minutes) ? minutes * 60 : 0;
+        }
+        if (next.ByoyomiPreset == GoByoyomiPreset.Custom)
+        {
+            int periods;
+            int seconds;
+            next.ByoyomiPeriods = int.TryParse(
+                customByoyomiPeriodsInput != null ? customByoyomiPeriodsInput.text : "",
+                out periods) ? periods : 0;
+            next.ByoyomiSeconds = int.TryParse(
+                customByoyomiSecondsInput != null ? customByoyomiSecondsInput.text : "",
+                out seconds) ? seconds : 0;
+        }
+        timeControl = next;
+        ValidateTimeControlUi();
+    }
+
+    void ValidateTimeControlUi()
+    {
+        if (timeControl.TryValidate(out string error))
+        {
+            SetTimeValidationMessage(null);
+            return;
+        }
+        SetTimeValidationMessage(error);
+    }
+
+    void SetTimeValidationMessage(string error)
+    {
+        string mainError = "";
+        string byoyomiError = "";
+        if (!string.IsNullOrEmpty(error))
+        {
+            if (error.IndexOf("byoyomi", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || error.IndexOf("读秒", System.StringComparison.Ordinal) >= 0)
+                byoyomiError = error;
+            else
+                mainError = error;
+        }
+        if (timeValidationText != null) timeValidationText.text = mainError;
+        if (byoyomiValidationText != null) byoyomiValidationText.text = byoyomiError;
     }
 
     void PaintOptions(List<Button> btns, int sel)
@@ -2528,6 +2798,15 @@ public class GoGame : MonoBehaviour
     {
         var le = b.GetComponent<LayoutElement>();
         le.flexibleWidth = 0f;
+        le.preferredWidth = w;
+    }
+
+    static void SetFixedWidth(InputField input, float w)
+    {
+        var le = input.GetComponent<LayoutElement>();
+        if (le == null) le = input.gameObject.AddComponent<LayoutElement>();
+        le.flexibleWidth = 0f;
+        le.minWidth = w;
         le.preferredWidth = w;
     }
 
