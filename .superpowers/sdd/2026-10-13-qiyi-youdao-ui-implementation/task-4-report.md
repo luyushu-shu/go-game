@@ -96,3 +96,18 @@ Result: process exit `0`，但没有生成 XML；日志报告 `Scan Filter Count
 ### 环境限制
 
 managed EditMode 的发现/执行入口和交互式 Play Mode 仍受当前托管 headless 环境限制；这不影响脚本编译、manifest 序列化收集、Windows 构建日志和既有 TestRunner 回归结果。
+
+## Fresh repair round 2: visual unit mapping and callback cleanup
+
+本轮仅修复复审指出的尺寸/覆盖问题与 toolbar 生命周期问题，未修改 Task 5+：
+
+1. 在 `GoBoardSkin` 增加明确的世界单位映射：棋盘底图按 `(boardSize + 1) * cellSize` 适配，棋子/死子阴影按 `0.92 * cellSize`，最后手与棋盘标记按 `0.84 * cellSize`；映射使用 Sprite 的实际 `bounds`，因此不会受 manifest PNG 像素尺寸或 PPU 影响。
+2. manifest 木纹被使用时额外创建同范围的程序化网格/星位 Sprite；fallback 木纹仍保留原有程序化网格和 `GoRules.StarPoints` 绘制逻辑。9/13/19 路使用同一套尺寸与坐标函数。
+3. ghost、复盘标记和 AI PV 棋子也通过 `GoBoardSkin` 的统一 Sprite 尺寸入口赋值，避免外部复用路径重新放大资源。
+4. `Clear()` 清空 `OnToolbarStateChanged`；`GoGame.BuildBoard()` 改为重建后重新绑定，保持清空棋盘和复盘重建时的 toolbar 回调。
+5. 新增 9/13/19 路尺寸映射测试、程序化网格/星位路径断言，以及 toolbar 回调清理断言。
+
+### Round 2 verification
+
+- 快速静态核对：通过；确认 `BoardWorldSize`、`PointWorldSize`、`MarkerWorldSize`、`MakeGridSprite`、`DrawProceduralGridAndStars`、`FillRect` 和 `GoRules.StarPoints` 均存在，且 `GoGame` 的 ghost/mark/PV 赋值均走统一尺寸入口。
+- 按用户中断要求，本轮未重新启动 batch compile、Windows build、TestRunner 或长时间 Play/EditMode 校验；上一轮已记录的 build/TestRunner 结果仍保留，managed EditMode 与 Play Mode 限制不变。

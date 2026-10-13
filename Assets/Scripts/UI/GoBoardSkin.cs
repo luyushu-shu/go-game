@@ -9,6 +9,14 @@ using UnityEngine.UI;
 /// </summary>
 public sealed class GoBoardSkin : MonoBehaviour
 {
+    // Board art is authored in pixels, while the game board is laid out in
+    // one world unit per intersection. Keep this mapping explicit so imported
+    // art with a different PPU cannot change the gameplay geometry.
+    public const float BoardEdgePaddingCells = 1f;
+    public const float PointSpriteDiameterCells = 0.92f;
+    public const float MarkerDiameterCells = 0.84f;
+    public const float TerritoryDiameterCells = 0.5f;
+
     public int VisibleStoneCount { get; private set; }
     public int VisibleMoveNumberCount { get; private set; }
     public bool ShowMoveNumbers => showMoveNumbers;
@@ -24,6 +32,8 @@ public sealed class GoBoardSkin : MonoBehaviour
     public Sprite DeadMarkerSprite { get; private set; }
     public Sprite TerritorySprite { get; private set; }
     public Sprite LastMoveSprite { get; private set; }
+    public SpriteRenderer GridRenderer { get; private set; }
+    public bool UsesProceduralGridAndStars { get; private set; }
 
     public Action<int, int> OnPointClick { get; private set; }
     public Action<bool, bool, bool> OnToolbarStateChanged { get; set; }
@@ -60,7 +70,8 @@ public sealed class GoBoardSkin : MonoBehaviour
         BoardRoot.SetParent(parent, false);
 
         int cellPx = size >= 19 ? 72 : size >= 13 ? 100 : 140;
-        boardSprite = LoadOrCreate(GoRuntimeAssetManifest.BoardWoodKey, MakeBoardSprite(size, cellPx));
+        Sprite generatedBoardSprite = MakeBoardSprite(size, cellPx);
+        boardSprite = LoadOrCreate(GoRuntimeAssetManifest.BoardWoodKey, generatedBoardSprite);
         BlackStoneSprite = LoadOrCreate(GoRuntimeAssetManifest.BlackStoneKey, MakeStoneSprite(true));
         WhiteStoneSprite = LoadOrCreate(GoRuntimeAssetManifest.WhiteStoneKey, MakeStoneSprite(false));
         DeadMarkerSprite = LoadOrCreate(GoRuntimeAssetManifest.StoneShadowKey, MakeDeadMarkerSprite());
@@ -72,7 +83,25 @@ public sealed class GoBoardSkin : MonoBehaviour
         var boardRenderer = board.AddComponent<SpriteRenderer>();
         boardRenderer.sprite = boardSprite;
         boardRenderer.sortingOrder = 0;
+        FitSpriteToWorldSize(boardRenderer, boardSprite,
+            new Vector2(BoardWorldSize(size, cellSize), BoardWorldSize(size, cellSize)));
         board.transform.localPosition = new Vector3((size - 1) * 0.5f, (size - 1) * 0.5f, 0f);
+
+        // The authored board image is wood texture only. Keep the procedural
+        // grid and star points visible over it when the manifest supplies art;
+        // the generated fallback already contains the same drawing.
+        if (boardSprite != generatedBoardSprite)
+        {
+            var grid = new GameObject("ProceduralGrid");
+            grid.transform.SetParent(BoardRoot, false);
+            grid.transform.localPosition = board.transform.localPosition;
+            GridRenderer = grid.AddComponent<SpriteRenderer>();
+            GridRenderer.sprite = MakeGridSprite(size, cellPx);
+            GridRenderer.sortingOrder = 1;
+            FitSpriteToWorldSize(GridRenderer, GridRenderer.sprite,
+                new Vector2(BoardWorldSize(size, cellSize), BoardWorldSize(size, cellSize)));
+        }
+        UsesProceduralGridAndStars = true;
 
         stoneRenderers = new SpriteRenderer[size, size];
         deadRenderers = new SpriteRenderer[size, size];
@@ -92,9 +121,12 @@ public sealed class GoBoardSkin : MonoBehaviour
             stone.enabled = false;
             stoneRenderers[x, y] = stone;
 
-            deadRenderers[x, y] = AddSpriteChild(point.transform, "Dead", DeadMarkerSprite, 2, 1f);
-            territoryRenderers[x, y] = AddSpriteChild(point.transform, "Territory", TerritorySprite, 1, 0.5f);
-            MarkRenderers[x, y] = AddSpriteChild(point.transform, "Mark", null, 5, 0.94f);
+            deadRenderers[x, y] = AddSpriteChild(point.transform, "Dead", DeadMarkerSprite, 2,
+                PointWorldSize(cellSize));
+            territoryRenderers[x, y] = AddSpriteChild(point.transform, "Territory", TerritorySprite, 1,
+                TerritoryWorldSize(cellSize));
+            MarkRenderers[x, y] = AddSpriteChild(point.transform, "Mark", null, 5,
+                MarkerWorldSize(cellSize));
             MarkRenderers[x, y].enabled = false;
 
             var moveObject = new GameObject("MoveNumber");
@@ -118,12 +150,13 @@ public sealed class GoBoardSkin : MonoBehaviour
             moveNumberMeshes[x, y] = textMesh;
         }
 
-        GhostRenderer = AddSpriteChild(BoardRoot, "Ghost", null, 3, 0.94f);
+        GhostRenderer = AddSpriteChild(BoardRoot, "Ghost", null, 3, PointWorldSize(cellSize));
         GhostRenderer.color = new Color(1f, 1f, 1f, 0.45f);
         GhostRenderer.enabled = false;
-        GhostMarkRenderer = AddSpriteChild(BoardRoot, "GhostMark", null, 5, 0.94f);
+        GhostMarkRenderer = AddSpriteChild(BoardRoot, "GhostMark", null, 5, MarkerWorldSize(cellSize));
         GhostMarkRenderer.enabled = false;
-        LastMoveRenderer = AddSpriteChild(BoardRoot, "LastMove", LastMoveSprite, 3, 0.94f);
+        LastMoveRenderer = AddSpriteChild(BoardRoot, "LastMove", LastMoveSprite, 3,
+            MarkerWorldSize(cellSize));
         LastMoveRenderer.enabled = false;
 
         BuildCoordinates();
@@ -150,6 +183,8 @@ public sealed class GoBoardSkin : MonoBehaviour
             stoneRenderer.enabled = stone != GoRules.EMPTY;
             if (stone == GoRules.BLACK) stoneRenderer.sprite = BlackStoneSprite;
             else if (stone == GoRules.WHITE) stoneRenderer.sprite = WhiteStoneSprite;
+            FitSpriteToWorldSize(stoneRenderer, stoneRenderer.sprite,
+                new Vector2(PointWorldSize(cellSize), PointWorldSize(cellSize)));
             bool dead = rules.Dead.Contains(index);
             stoneRenderer.color = dead ? new Color(1f, 1f, 1f, 0.35f) : Color.white;
             deadRenderers[x, y].enabled = dead;
@@ -211,6 +246,7 @@ public sealed class GoBoardSkin : MonoBehaviour
         }
         BoardRoot = null;
         OnPointClick = null;
+        OnToolbarStateChanged = null;
         stoneRenderers = null;
         deadRenderers = null;
         territoryRenderers = null;
@@ -219,6 +255,8 @@ public sealed class GoBoardSkin : MonoBehaviour
         GhostRenderer = null;
         GhostMarkRenderer = null;
         LastMoveRenderer = null;
+        GridRenderer = null;
+        UsesProceduralGridAndStars = false;
         VisibleStoneCount = 0;
         VisibleMoveNumberCount = 0;
         toolbarRoot = null;
@@ -234,16 +272,64 @@ public sealed class GoBoardSkin : MonoBehaviour
         return new Vector2(x * cellSize, y * cellSize);
     }
 
-    SpriteRenderer AddSpriteChild(Transform parent, string name, Sprite sprite, int sortingOrder, float scale)
+    public static float BoardWorldSize(int boardSize, float cellSize)
+    {
+        return (boardSize + BoardEdgePaddingCells) * cellSize;
+    }
+
+    public static float PointWorldSize(float cellSize)
+    {
+        return PointSpriteDiameterCells * cellSize;
+    }
+
+    public static float MarkerWorldSize(float cellSize)
+    {
+        return MarkerDiameterCells * cellSize;
+    }
+
+    public static float TerritoryWorldSize(float cellSize)
+    {
+        return TerritoryDiameterCells * cellSize;
+    }
+
+    public void SetPointSprite(SpriteRenderer renderer, Sprite sprite)
+    {
+        SetSprite(renderer, sprite, PointWorldSize(cellSize));
+    }
+
+    public void SetMarkerSprite(SpriteRenderer renderer, Sprite sprite)
+    {
+        SetSprite(renderer, sprite, MarkerWorldSize(cellSize));
+    }
+
+    void SetSprite(SpriteRenderer renderer, Sprite sprite, float worldSize)
+    {
+        if (renderer == null) return;
+        renderer.sprite = sprite;
+        FitSpriteToWorldSize(renderer, sprite, new Vector2(worldSize, worldSize));
+    }
+
+    SpriteRenderer AddSpriteChild(Transform parent, string name, Sprite sprite, int sortingOrder, float worldSize)
     {
         var go = new GameObject(name);
         go.transform.SetParent(parent, false);
-        go.transform.localScale = Vector3.one * scale;
         var renderer = go.AddComponent<SpriteRenderer>();
         renderer.sprite = sprite;
         renderer.sortingOrder = sortingOrder;
+        FitSpriteToWorldSize(renderer, sprite, new Vector2(worldSize, worldSize));
         renderer.enabled = false;
         return renderer;
+    }
+
+    static void FitSpriteToWorldSize(SpriteRenderer renderer, Sprite sprite, Vector2 worldSize)
+    {
+        if (renderer == null || sprite == null) return;
+        Vector2 sourceSize = sprite.bounds.size;
+        if (sourceSize.x <= 0f || sourceSize.y <= 0f) return;
+        renderer.transform.localScale = new Vector3(
+            worldSize.x / sourceSize.x,
+            worldSize.y / sourceSize.y,
+            1f);
     }
 
     void BuildCoordinates()
@@ -423,6 +509,20 @@ public sealed class GoBoardSkin : MonoBehaviour
             pixels[y * resolution + x] = Color32.Lerp(woodA, woodB,
                 Mathf.Clamp01(y / (float)resolution * 0.5f + grain * 0.2f));
         }
+        DrawProceduralGridAndStars(pixels, resolution, size, cellPx);
+        return CreateSprite(pixels, resolution, resolution, cellPx);
+    }
+
+    Sprite MakeGridSprite(int size, int cellPx)
+    {
+        int resolution = cellPx * (size + 1);
+        var pixels = new Color32[resolution * resolution];
+        DrawProceduralGridAndStars(pixels, resolution, size, cellPx);
+        return CreateSprite(pixels, resolution, resolution, cellPx);
+    }
+
+    static void DrawProceduralGridAndStars(Color32[] pixels, int resolution, int size, int cellPx)
+    {
         var line = new Color32(0x42, 0x2A, 0x16, 0xE8);
         for (int i = 0; i < size; i++)
         {
@@ -438,7 +538,6 @@ public sealed class GoBoardSkin : MonoBehaviour
         foreach (int y in GoRules.StarPoints(size))
             FillCircle(pixels, resolution, (x + 1) * cellPx, (y + 1) * cellPx,
                 Mathf.Max(4, cellPx / 10), star);
-        return CreateSprite(pixels, resolution, resolution, cellPx);
     }
 
     Sprite MakeStoneSprite(bool black)

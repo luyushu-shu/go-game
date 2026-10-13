@@ -559,7 +559,7 @@ public class GoGame : MonoBehaviour
         ghostSr.enabled = canHover;
         if (canHover)
         {
-            ghostSr.sprite = rules.Turn == GoRules.BLACK ? stoneBlack : stoneWhite;
+            boardSkin.SetPointSprite(ghostSr, rules.Turn == GoRules.BLACK ? stoneBlack : stoneWhite);
             ghostSr.transform.position = new Vector3(x, y, 0f);
         }
 
@@ -571,7 +571,7 @@ public class GoGame : MonoBehaviour
                 if (ghostMarkSr != null)
                 {
                     ghostMarkSr.enabled = true;
-                    ghostMarkSr.sprite = GetMarkSprite(activeMarkTool);
+                    boardSkin.SetMarkerSprite(ghostMarkSr, GetMarkSprite(activeMarkTool));
                     ghostMarkSr.transform.position = new Vector3(x, y, 0f);
                     int stone = rules.Board[rules.Idx(x, y)];
                     ghostMarkSr.color = GetGhostMarkColor(stone);
@@ -584,7 +584,7 @@ public class GoGame : MonoBehaviour
                 ghostSr.enabled = canReviewHover;
                 if (canReviewHover)
                 {
-                    ghostSr.sprite = rules.Turn == GoRules.BLACK ? stoneBlack : stoneWhite;
+                    boardSkin.SetPointSprite(ghostSr, rules.Turn == GoRules.BLACK ? stoneBlack : stoneWhite);
                     ghostSr.transform.position = new Vector3(x, y, 0f);
                 }
             }
@@ -661,8 +661,10 @@ public class GoGame : MonoBehaviour
     void BuildBoard()
     {
         if (boardSkin == null) boardSkin = gameObject.AddComponent<GoBoardSkin>();
-        boardSkin.OnToolbarStateChanged = OnBoardToolbarStateChanged;
         boardSkin.Build(boardSize, transform, numberFont, HandleBoardPointClick);
+        // Build() clears the previous toolbar subscription with the old board
+        // hierarchy; install the current GoGame callback after reconstruction.
+        boardSkin.OnToolbarStateChanged = OnBoardToolbarStateChanged;
         boardRoot = boardSkin.BoardRoot;
         stoneBlack = boardSkin.BlackStoneSprite;
         stoneWhite = boardSkin.WhiteStoneSprite;
@@ -911,7 +913,7 @@ public class GoGame : MonoBehaviour
             else
             {
                 sr.enabled = true;
-                sr.sprite = GetMarkSprite((GoMarkType)markVal);
+                boardSkin.SetMarkerSprite(sr, GetMarkSprite((GoMarkType)markVal));
                 int stone = rules.Board[i];
                 sr.color = GetMarkColor(stone);
             }
@@ -3455,7 +3457,7 @@ public class GoGame : MonoBehaviour
             go.transform.position = new Vector3(x, y, 0f);
 
             bool isBlack = side == GoRules.BLACK;
-            pvStoneSrs[shown].sprite = isBlack ? stoneBlack : stoneWhite;
+            boardSkin.SetPointSprite(pvStoneSrs[shown], isBlack ? stoneBlack : stoneWhite);
             pvStoneSrs[shown].color = new Color(1f, 1f, 1f, 0.78f);
 
             pvTextMeshes[shown].text = (shown + 1).ToString();

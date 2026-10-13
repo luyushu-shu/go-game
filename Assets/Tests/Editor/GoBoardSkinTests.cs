@@ -42,6 +42,33 @@ public class GoBoardSkinTests
     }
 
     [Test]
+    public void BoardAndPointSpritesMapImportedPixelsToWorldUnitsOnAllBoardSizes()
+    {
+        foreach (int size in new[] { 9, 13, 19 })
+        {
+            var root = new GameObject("BoardSkinSizingTest_" + size);
+            var skin = root.AddComponent<GoBoardSkin>();
+            var rules = new GoRules(size);
+            Assert.IsTrue(rules.Play(0, 0, out _));
+            skin.Build(size, root.transform, null, null);
+            skin.Refresh(rules, false, false, false);
+
+            var boardRenderer = skin.BoardRoot.Find("Board").GetComponent<SpriteRenderer>();
+            Assert.AreEqual(GoBoardSkin.BoardWorldSize(size, 1f), boardRenderer.bounds.size.x, 0.001f);
+            Assert.IsTrue(skin.UsesProceduralGridAndStars);
+
+            var point = skin.BoardRoot.Find("Point_0_0");
+            Assert.AreEqual(GoBoardSkin.PointWorldSize(1f),
+                point.GetComponent<SpriteRenderer>().bounds.size.x, 0.001f);
+            Assert.AreEqual(GoBoardSkin.PointWorldSize(1f),
+                point.Find("Dead").GetComponent<SpriteRenderer>().bounds.size.x, 0.001f);
+            Assert.AreEqual(GoBoardSkin.MarkerWorldSize(1f),
+                skin.LastMoveRenderer.bounds.size.x, 0.001f);
+            Object.DestroyImmediate(root);
+        }
+    }
+
+    [Test]
     public void ToolbarStateAndPointCallbackAreObservable()
     {
         var root = new GameObject("BoardSkinToolbarTest");
@@ -65,9 +92,11 @@ public class GoBoardSkinTests
         var skin = root.AddComponent<GoBoardSkin>();
         int callbackCount = 0;
         skin.Build(9, root.transform, null, (x, y) => callbackCount++);
+        skin.OnToolbarStateChanged = (moveNumbers, coordinates, territory) => callbackCount++;
         skin.Clear();
         skin.NotifyPointClick(2, 3);
         Assert.AreEqual(0, callbackCount);
+        Assert.IsNull(skin.OnToolbarStateChanged);
         Object.DestroyImmediate(root);
     }
 
