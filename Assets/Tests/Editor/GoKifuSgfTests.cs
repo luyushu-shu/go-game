@@ -64,4 +64,14 @@ public class GoKifuSgfTests
         Assert.AreEqual(0, GoGame.ResolveKifuSaveHandicap(false, 4, true, 9));
         Assert.AreEqual(3, GoGame.ResolveKifuSaveHandicap(false, 4, false, 3));
     }
+
+    [Test]
+    public void NewBranchStepStartsWithoutAnalysis()
+    {
+        var step = GoGame.CreateUnanalyzedBranchStep(1, 2, 3, GoRules.BLACK, false);
+
+        Assert.IsFalse(step.hasAnalysis);
+        Assert.AreEqual(-1f, step.winrate);
+        Assert.AreEqual(0f, step.scoreLead);
+    }
 }

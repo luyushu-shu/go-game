@@ -59,6 +59,21 @@ public class GoGame : MonoBehaviour
         return studyMode ? 0 : Mathf.Max(0, configuredHandicap);
     }
 
+    public static BranchStepData CreateUnanalyzedBranchStep(int step, int x, int y, int color, bool isPass)
+    {
+        return new BranchStepData
+        {
+            step = step,
+            x = x,
+            y = y,
+            color = color,
+            isPass = isPass,
+            winrate = -1f,
+            scoreLead = 0f,
+            hasAnalysis = false
+        };
+    }
+
     GoRules rules;
     int boardSize = 19;
     bool vsAI = false;
@@ -1552,8 +1567,7 @@ public class GoGame : MonoBehaviour
         inBranchMode = true;
         branchPlyStart = reviewPly;
         branchMoveCount = 0;
-        branchLastWinrate = TryGetReviewWinrate(reviewPly, out float initialWinrate)
-            ? initialWinrate : -1f;
+        branchLastWinrate = -1f;
 
         if (btnExitBranch != null) btnExitBranch.SetActive(true);
         if (btnBranchUndo != null) btnBranchUndo.SetActive(true);
@@ -1802,6 +1816,7 @@ public class GoGame : MonoBehaviour
         if (reviewingKifu) return;
         InvalidateAiTurn();
         HideScorePopup();
+        ClearResumedKifuSession();
         WipeBoardState();
         BuildBoard();
         if (vsAI) StartPlayClock();
@@ -3173,7 +3188,7 @@ public class GoGame : MonoBehaviour
         kifuDraftReady = false;
         StartPlayClock();
         Refresh();
-        Flash($"已恢复第 {resumedReviewPly} 手，轮到{rules.Turn == GoRules.BLACK ? "黑" : "白"}方");
+        Flash($"已恢复第 {resumedReviewPly} 手，轮到{(rules.Turn == GoRules.BLACK ? "黑" : "白")}方");
     }
 
     void ReviewSeek(int ply)
@@ -3281,7 +3296,7 @@ public class GoGame : MonoBehaviour
         bool hasPositionAnalysis = curPosAnalysis != null
             && curPosAnalysis.candidates != null
             && curPosAnalysis.candidates.Count > 0;
-        bool hasGameAnalysis = HasGameAnalysisAt(reviewPly);
+        bool hasGameAnalysis = !inBranchMode && HasGameAnalysisAt(reviewPly);
         if (reviewPositionInfoText != null)
         {
             string who = rules != null && rules.Turn == GoRules.BLACK ? "黑方" : "白方";
@@ -4716,23 +4731,18 @@ public class GoGame : MonoBehaviour
                 };
                 reviewBranches.Add(br);
                 curBranchIdx = reviewBranches.Count - 1;
-            branchLastWinrate = TryGetReviewWinrate(reviewPly, out float initialWinrate)
-                    ? initialWinrate : -1f;
+                branchLastWinrate = -1f;
             }
             rules.Pass();
             branchMoveCount++;
-            var step = new BranchStepData
-            {
-                step = branchMoveCount,
-                x = -1,
-                y = -1,
-                color = GoRules.Opp(rules.Turn),
-                isPass = true,
-                winrate = branchLastWinrate,
-                hasAnalysis = branchLastWinrate >= 0f
-            };
+            curPosAnalysis = null;
+            branchLastWinrate = -1f;
+            var step = CreateUnanalyzedBranchStep(
+                branchMoveCount, -1, -1, GoRules.Opp(rules.Turn), true);
             reviewBranches[curBranchIdx].steps.Add(step);
             curBranchStepIdx = reviewBranches[curBranchIdx].steps.Count - 1;
+            ClearWinrateBar();
+            RefreshReviewAnalysisDisplay();
 
             HideCandidateBadges();
             Refresh();
@@ -4768,26 +4778,21 @@ public class GoGame : MonoBehaviour
             };
             reviewBranches.Add(br);
             curBranchIdx = reviewBranches.Count - 1;
-            branchLastWinrate = TryGetReviewWinrate(reviewPly, out float initialWinrate)
-                ? initialWinrate : -1f;
+            branchLastWinrate = -1f;
         }
 
         if (rules.Play(x, y, out string msg))
         {
             branchMoveCount++;
             int movedColor = GoRules.Opp(rules.Turn);
-            var step = new BranchStepData
-            {
-                step = branchMoveCount,
-                x = x,
-                y = y,
-                color = movedColor,
-                isPass = false,
-                winrate = branchLastWinrate,
-                hasAnalysis = branchLastWinrate >= 0f
-            };
+            curPosAnalysis = null;
+            branchLastWinrate = -1f;
+            var step = CreateUnanalyzedBranchStep(
+                branchMoveCount, x, y, movedColor, false);
             reviewBranches[curBranchIdx].steps.Add(step);
             curBranchStepIdx = reviewBranches[curBranchIdx].steps.Count - 1;
+            ClearWinrateBar();
+            RefreshReviewAnalysisDisplay();
 
             HideCandidateBadges();
             Refresh();
