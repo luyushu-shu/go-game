@@ -74,4 +74,17 @@ public class GoKifuSgfTests
         Assert.AreEqual(-1f, step.winrate);
         Assert.AreEqual(0f, step.scoreLead);
     }
+
+    [Test]
+    public void ReviewAnalysisIdentityRejectsStaleBranchStep()
+    {
+        Assert.IsTrue(GoGame.IsReviewAnalysisTargetCurrent(
+            7, 7, true, 3, 3, 1, 1, 4, 4, true));
+        Assert.IsFalse(GoGame.IsReviewAnalysisTargetCurrent(
+            7, 8, true, 3, 3, 1, 1, 4, 4, true));
+        Assert.IsFalse(GoGame.IsReviewAnalysisTargetCurrent(
+            7, 7, true, 3, 3, 1, 2, 4, 4, true));
+        Assert.IsFalse(GoGame.IsReviewAnalysisTargetCurrent(
+            7, 7, true, 3, -1, 1, -1, 4, 4, false));
+    }
 }

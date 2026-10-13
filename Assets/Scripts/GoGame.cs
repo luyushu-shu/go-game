@@ -74,6 +74,27 @@ public class GoGame : MonoBehaviour
         };
     }
 
+    public static bool IsReviewAnalysisTargetCurrent(
+        int requestToken,
+        int activeToken,
+        bool targetInBranch,
+        int targetBranchId,
+        int currentBranchId,
+        int targetBranchStep,
+        int currentBranchStep,
+        int targetPly,
+        int currentPly,
+        bool currentInBranch)
+    {
+        if (requestToken != activeToken || targetInBranch != currentInBranch || targetPly != currentPly)
+            return false;
+        if (!targetInBranch)
+            return currentBranchId < 0 && currentBranchStep < 0;
+        return targetBranchId >= 0
+            && targetBranchId == currentBranchId
+            && targetBranchStep == currentBranchStep;
+    }
+
     GoRules rules;
     int boardSize = 19;
     bool vsAI = false;
@@ -103,6 +124,7 @@ public class GoGame : MonoBehaviour
     KataPositionAnalysis curPosAnalysis;
     KataGameAnalysis gameAnalysis;
     Coroutine curAnalysisCo, fullAnalysisCo;
+    int reviewAnalysisToken;
     int hoveredCandidateIdx = -1;
     bool inBranchMode = false;
     int branchPlyStart = 0;
@@ -501,7 +523,7 @@ public class GoGame : MonoBehaviour
         {
             if (isAnalyzingFullGame) { GoKataGo.CancelAnalysis(); isAnalyzingFullGame = false; }
             if (fullAnalysisCo != null) { StopCoroutine(fullAnalysisCo); fullAnalysisCo = null; }
-            if (curAnalysisCo != null) { StopCoroutine(curAnalysisCo); curAnalysisCo = null; }
+            InvalidatePositionAnalysis();
             inBranchMode = false;
             curBranchIdx = -1;
             curBranchStepIdx = -1;
@@ -1550,8 +1572,9 @@ public class GoGame : MonoBehaviour
         if (!reviewingKifu) return;
         if (inBranchMode)
         {
-            ExitBranchMode();
+            ExitBranchMode(false);
         }
+        InvalidatePositionAnalysis();
 
         var br = new MoveBranchData
         {
@@ -1575,6 +1598,7 @@ public class GoGame : MonoBehaviour
         Flash($"已新建【{br.name}】（以实战第 {reviewPly} 手为起点），请在盘面落子");
         SyncCommentModule();
         RefreshReviewMoveLog();
+        RefreshReviewAnalysisDisplay();
         SaveReviewCommentsAndBranches();
     }
 
@@ -1606,9 +1630,7 @@ public class GoGame : MonoBehaviour
     {
         if (idx < 0 || idx >= reviewBranches.Count) return;
         var br = reviewBranches[idx];
-        if (curAnalysisCo != null) { StopCoroutine(curAnalysisCo); curAnalysisCo = null; }
-
-        ReviewSeek(br.startPly);
+        ReviewSeek(br.startPly, false);
 
         inBranchMode = true;
         curBranchIdx = idx;
@@ -1633,6 +1655,8 @@ public class GoGame : MonoBehaviour
 
         rules.EnsureMoveAtForDisplay();
         Refresh();
+        RefreshReviewAnalysisDisplay();
+        if (aiReviewEnabled && curBranchStepIdx >= 0) RequestPositionAnalysis();
         Flash($"已载入【{br.name}】（第 {br.startPly} 手起 · 共 {br.steps.Count} 步推演）");
     }
 
@@ -3113,6 +3137,7 @@ public class GoGame : MonoBehaviour
             }
         }
         StopAllCoroutines();
+        InvalidatePositionAnalysis();
         boardSize = rec.boardSize > 0 ? rec.boardSize : 19;
         showMoveNums = true;
         reviewLogCsv = rec.moveLogCsv ?? "";
@@ -3158,7 +3183,7 @@ public class GoGame : MonoBehaviour
         if (isAnalyzingFullGame) GoKataGo.CancelAnalysis();
         isAnalyzingFullGame = false;
         if (fullAnalysisCo != null) { StopCoroutine(fullAnalysisCo); fullAnalysisCo = null; }
-        if (curAnalysisCo != null) { StopCoroutine(curAnalysisCo); curAnalysisCo = null; }
+        InvalidatePositionAnalysis();
         StopPlayClock();
 
         reviewingKifu = false;
@@ -3191,16 +3216,24 @@ public class GoGame : MonoBehaviour
         Flash($"已恢复第 {resumedReviewPly} 手，轮到{(rules.Turn == GoRules.BLACK ? "黑" : "白")}方");
     }
 
-    void ReviewSeek(int ply)
+    void InvalidatePositionAnalysis()
     {
-        if (!reviewingKifu || rules == null) return;
+        reviewAnalysisToken++;
         if (curAnalysisCo != null)
         {
             StopCoroutine(curAnalysisCo);
             curAnalysisCo = null;
         }
         curPosAnalysis = null;
+        hoveredCandidateIdx = -1;
         HideCandidateBadges();
+        ClearWinrateBar();
+    }
+
+    void ReviewSeek(int ply, bool requestAnalysis = true)
+    {
+        if (!reviewingKifu || rules == null) return;
+        InvalidatePositionAnalysis();
         if (inBranchMode)
         {
             inBranchMode = false;
@@ -3253,7 +3286,7 @@ public class GoGame : MonoBehaviour
 
         RefreshReviewAnalysisDisplay();
 
-        if (aiReviewEnabled) RequestPositionAnalysis();
+        if (requestAnalysis && aiReviewEnabled) RequestPositionAnalysis();
         else RefreshReviewAnalysisDisplay();
     }
 
@@ -3315,6 +3348,7 @@ public class GoGame : MonoBehaviour
             && curPosAnalysis.candidates.Count > 0
             ? curPosAnalysis.candidates[0] : null;
         UpdateCandidateDetailText(candidate);
+        UpdateReviewInfoText(reviewPly);
     }
 
     void RefreshReviewMoveLog()
@@ -4425,7 +4459,9 @@ public class GoGame : MonoBehaviour
             }
             else
             {
-                winrateInfoText.text = $"<color=#EAA83E>【试下第 {branchMoveCount} 步】轮到{who}落子 · AI思考中…</color>";
+                winrateInfoText.text = branchMoveCount > 0 && aiReviewEnabled
+                    ? $"<color=#EAA83E>【试下第 {branchMoveCount} 步】轮到{who}落子 · AI思考中…</color>"
+                    : "暂无分析";
             }
             return;
         }
@@ -4469,9 +4505,7 @@ public class GoGame : MonoBehaviour
         }
         else
         {
-            HideCandidateBadges();
-            if (curAnalysisCo != null) { StopCoroutine(curAnalysisCo); curAnalysisCo = null; }
-            curPosAnalysis = null;
+            InvalidatePositionAnalysis();
             RefreshReviewAnalysisDisplay();
         }
     }
@@ -4547,14 +4581,35 @@ public class GoGame : MonoBehaviour
     void RequestPositionAnalysis()
     {
         if (!aiReviewEnabled || !reviewingKifu) return;
-        if (curAnalysisCo != null) { StopCoroutine(curAnalysisCo); curAnalysisCo = null; }
-        curAnalysisCo = StartCoroutine(DoPositionAnalysis());
+        if (inBranchMode && (curBranchIdx < 0 || curBranchIdx >= reviewBranches.Count || curBranchStepIdx < 0))
+        {
+            InvalidatePositionAnalysis();
+            RefreshReviewAnalysisDisplay();
+            return;
+        }
+        InvalidatePositionAnalysis();
+        int requestToken = reviewAnalysisToken;
+        bool targetInBranch = inBranchMode;
+        int targetBranchId = -1;
+        int targetBranchStep = -1;
+        if (targetInBranch && curBranchIdx >= 0 && curBranchIdx < reviewBranches.Count)
+        {
+            targetBranchId = reviewBranches[curBranchIdx].branchId;
+            targetBranchStep = curBranchStepIdx;
+        }
+        int targetPly = reviewPly;
+        RefreshReviewAnalysisDisplay();
+        curAnalysisCo = StartCoroutine(DoPositionAnalysis(
+            requestToken, targetInBranch, targetBranchId, targetBranchStep, targetPly));
     }
 
-    IEnumerator DoPositionAnalysis()
+    IEnumerator DoPositionAnalysis(
+        int requestToken,
+        bool targetInBranch,
+        int targetBranchId,
+        int targetBranchStep,
+        int targetPly)
     {
-        curPosAnalysis = null;
-        HideCandidateBadges();
         int side = rules.Turn;
         yield return GoKataGo.AnalyzePosition(
             rules,
@@ -4564,6 +4619,19 @@ public class GoGame : MonoBehaviour
             60,
             (pos) =>
             {
+                if (!reviewingKifu || !IsReviewAnalysisTargetCurrent(
+                    requestToken,
+                    reviewAnalysisToken,
+                    targetInBranch,
+                    targetBranchId,
+                    curBranchIdx >= 0 && curBranchIdx < reviewBranches.Count ? reviewBranches[curBranchIdx].branchId : -1,
+                    targetBranchStep,
+                    curBranchStepIdx,
+                    targetPly,
+                    reviewPly,
+                    inBranchMode))
+                    return;
+
                 curPosAnalysis = pos;
                 if (pos != null && pos.candidates != null && pos.candidates.Count > 0)
                 {
@@ -4594,13 +4662,17 @@ public class GoGame : MonoBehaviour
                 }
                 else
                 {
+                    HideCandidateBadges();
                     RefreshReviewAnalysisDisplay();
                 }
             }
         );
-        if (curPosAnalysis == null)
-            RefreshReviewAnalysisDisplay();
-        curAnalysisCo = null;
+        if (requestToken == reviewAnalysisToken)
+        {
+            if (curPosAnalysis == null)
+                RefreshReviewAnalysisDisplay();
+            curAnalysisCo = null;
+        }
     }
 
     void ShowCandidateBadges(KataPositionAnalysis pos)
@@ -4699,11 +4771,7 @@ public class GoGame : MonoBehaviour
     {
         if (!reviewingKifu) return;
 
-        if (curAnalysisCo != null)
-        {
-            StopCoroutine(curAnalysisCo);
-            curAnalysisCo = null;
-        }
+        InvalidatePositionAnalysis();
 
         if (isAnalyzingFullGame)
         {
@@ -4840,11 +4908,7 @@ public class GoGame : MonoBehaviour
     void UndoBranchMove()
     {
         if (!reviewingKifu || !inBranchMode) return;
-        if (curAnalysisCo != null)
-        {
-            StopCoroutine(curAnalysisCo);
-            curAnalysisCo = null;
-        }
+        InvalidatePositionAnalysis();
 
         if (branchMoveCount <= 1)
         {
@@ -4885,11 +4949,12 @@ public class GoGame : MonoBehaviour
 
     void ExitBranchMode()
     {
-        if (curAnalysisCo != null)
-        {
-            StopCoroutine(curAnalysisCo);
-            curAnalysisCo = null;
-        }
+        ExitBranchMode(true);
+    }
+
+    void ExitBranchMode(bool requestAnalysis)
+    {
+        InvalidatePositionAnalysis();
         inBranchMode = false;
         curBranchIdx = -1;
         curBranchStepIdx = -1;
@@ -4897,7 +4962,7 @@ public class GoGame : MonoBehaviour
         branchLastWinrate = -1f;
         if (btnExitBranch != null) btnExitBranch.SetActive(false);
         if (btnBranchUndo != null) btnBranchUndo.SetActive(false);
-        ReviewSeek(branchPlyStart);
+        ReviewSeek(branchPlyStart, requestAnalysis);
         Flash("已恢复实战局面");
     }
 
