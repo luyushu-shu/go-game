@@ -1,3 +1,5 @@
+using System.IO;
+using UnityEditor;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.UI;
@@ -13,6 +15,23 @@ public class GoUiThemeTests
         Assert.AreEqual(new Color(0.827f, 0.635f, 0.298f, 1f), theme.Gold);
         Assert.AreEqual(0.220f, theme.PageTransitionSeconds, 0.0001f);
         Object.DestroyImmediate(theme);
+    }
+
+    [Test]
+    public void ResponsiveTargetsKeepPhysicalBoundsAtReleaseResolutions()
+    {
+        foreach (var size in new[] { new Vector2(1920f, 1080f),
+            new Vector2(1600f, 900f), new Vector2(1366f, 768f) })
+        {
+            Assert.IsTrue(GoUiTheme.ResponsiveTargetsHold(size.x, size.y),
+                $"responsive UI target failed at {size.x}x{size.y}");
+            float sidebar = GoUiTheme.PhysicalPixelsForCanvasUnits(
+                GoUiTheme.SidebarWidthCanvas(size.x, size.y), size.x, size.y);
+            float font = GoUiTheme.PhysicalPixelsForCanvasUnits(
+                GoUiTheme.MinimumBodyFontSizeCanvas(size.x, size.y), size.x, size.y);
+            Assert.That(sidebar, Is.InRange(340f, 390f));
+            Assert.That(font, Is.GreaterThanOrEqualTo(GoUiTheme.MinimumBodyFontPixels));
+        }
     }
 
     [Test]
@@ -34,6 +53,33 @@ public class GoUiThemeTests
         {
             Object.DestroyImmediate(root);
             Object.DestroyImmediate(theme);
+        }
+    }
+
+    [Test]
+    public void RequiredUiSpritesAreNonEmptySingleSpriteAssets()
+    {
+        string[] paths = {
+            "Assets/Art/UI/Buttons/button_primary_9slice_256.png",
+            "Assets/Art/UI/Buttons/button_secondary_9slice_256.png",
+            "Assets/Art/UI/Buttons/button_danger_9slice_256.png",
+            "Assets/Art/UI/Icons/icon_settings_64.png",
+            "Assets/Art/UI/Icons/icon_volume_64.png",
+            "Assets/Art/UI/Icons/icon_mute_64.png",
+            "Assets/Art/UI/Icons/icon_undo_64.png",
+            "Assets/Art/UI/Icons/icon_pass_64.png",
+            "Assets/Art/UI/Icons/icon_score_64.png",
+            "Assets/Art/UI/Icons/icon_resign_64.png"
+        };
+
+        foreach (var path in paths)
+        {
+            Assert.IsTrue(File.Exists(path), "Missing UI asset: " + path);
+            Assert.Greater(new FileInfo(path).Length, 128, "Blank UI asset: " + path);
+            string meta = File.ReadAllText(path + ".meta");
+            StringAssert.Contains("spriteMode: 1", meta);
+            var sprite = AssetDatabase.LoadAssetAtPath<Sprite>(path);
+            Assert.IsNotNull(sprite, "Not imported as Sprite: " + path);
         }
     }
 

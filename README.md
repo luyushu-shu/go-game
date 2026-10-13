@@ -18,16 +18,16 @@
 
 人机开局可选三种对手：
 
-### KataGo（推荐）
+### KataGo（可选）
 
-调用本机 [KataGo](https://github.com/lightvector/KataGo) GTP 引擎（10 路神经网络，g170e-b10c128）。Windows 发布包已附带引擎与权重；从源码运行时把文件放到工程根目录 `Tools/KataGo/`：
+调用用户自行安装并配置的本机 [KataGo](https://github.com/lightvector/KataGo) GTP 引擎（10 路神经网络，g170e-b10c128）。当前仓库和 Windows 构建输出**不附带** KataGo 可执行程序或模型；发布时需用户自行取得并放到工程根目录的 `Tools/KataGo/`（或按实际部署路径配置）：
 
 - `katago.exe`（优先 OpenCL / GPU）
 - `katago-eigen.exe`（CPU AVX2 备用）
 - `default_model.bin.gz`
-- `gtp.cfg`（每手约 400 visits / 最多 4 秒；本仓库提供）
+- `gtp.cfg`（每手约 400 visits / 最多 4 秒；本仓库提供示例配置）
 
-引擎二进制不进 Git。首次用 OpenCL 时可能自动调优，第一手会稍慢。
+引擎二进制和模型不进 Git，也不会由构建脚本伪装成随包资源。首次用 OpenCL 时可能自动调优，第一手会稍慢。若程序、模型或配置不可用，界面会明确提示，并自动降级到本地 MCTS 引擎；不会阻塞普通对局。
 
 ### 本地引擎（MCTS）
 

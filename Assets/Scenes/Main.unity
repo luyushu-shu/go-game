@@ -124,7 +124,7 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
---- !u!1 &154900854
+--- !u!1 &1059213457
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -132,8 +132,8 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 7
   m_Component:
-  - component: {fileID: 154900856}
-  - component: {fileID: 154900855}
+  - component: {fileID: 1059213459}
+  - component: {fileID: 1059213458}
   m_Layer: 0
   m_HasEditorInfo: 1
   m_Name: QiyiRuntimeAssetManifest
@@ -142,13 +142,13 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &154900855
+--- !u!114 &1059213458
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 154900854}
+  m_GameObject: {fileID: 1059213457}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 1fce27d2f8bf4de4aa314c4af613ec34, type: 3}
@@ -165,7 +165,17 @@ MonoBehaviour:
   aiBest: {fileID: 21300000, guid: 21db28eb7c247fb4b9da51530dc45d58, type: 3}
   panelPaper: {fileID: 21300000, guid: 7772521b732aca94eacd0aaa4a7d73a9, type: 3}
   panelInk: {fileID: 21300000, guid: 3f9811599d21b394a953cb3477ea780d, type: 3}
+  buttonPrimary: {fileID: 21300000, guid: da37b34163434218b388a9aaa2be83b6, type: 3}
+  buttonSecondary: {fileID: 21300000, guid: f7d3f9fb6dd84dfbb320903d18006bce, type: 3}
+  buttonDanger: {fileID: 21300000, guid: d931f6aa3cdd47d1804f481203567e13, type: 3}
   buttonIcon: {fileID: 21300000, guid: 76e803c9e1c134b4e9ab54734ece2386, type: 3}
+  settingsIcon: {fileID: 21300000, guid: d60ea23626ff4c42ba7a6d83ace1ad9a, type: 3}
+  volumeIcon: {fileID: 21300000, guid: 34b8eb97a38a470585397aba86c351c4, type: 3}
+  muteIcon: {fileID: 21300000, guid: bb34918ab7dc4d08a027c5a2e7686af8, type: 3}
+  undoIcon: {fileID: 21300000, guid: b1f7afad9f4d4fb298f7168819a2e9d2, type: 3}
+  passIcon: {fileID: 21300000, guid: d47b9b4fa0894490832d69270e234100, type: 3}
+  scoreIcon: {fileID: 21300000, guid: 232d65b2b5ad423ba1c54b2a0cf0e62e, type: 3}
+  resignIcon: {fileID: 21300000, guid: 8485006ad1354ac58c49d6d3f123b07c, type: 3}
   boardMoveNumbers: {fileID: 21300000, guid: 8f2a4dbb73d94ba8b09b3c3dbe3b7331, type: 3}
   boardCoordinates: {fileID: 21300000, guid: 0a4a83d1c8e844b7b7bd0a09f3b4a621, type: 3}
   boardSituation: {fileID: 21300000, guid: 6f6a1baf1f0b4f288f07d65a0a772d54, type: 3}
@@ -177,13 +187,13 @@ MonoBehaviour:
   gameEnd: {fileID: 8300000, guid: a3665d5287def58419a5d5e20f337266, type: 3}
   bgmStudy: {fileID: 8300000, guid: bfe6614ba8735364f9585fbfe8636647, type: 3}
   bgmReview: {fileID: 8300000, guid: 631cbc57b061b394889da66e7d089318, type: 3}
---- !u!4 &154900856
+--- !u!4 &1059213459
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 154900854}
+  m_GameObject: {fileID: 1059213457}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
@@ -196,4 +206,4 @@ Transform:
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
-  - {fileID: 154900856}
+  - {fileID: 1059213459}

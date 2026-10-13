@@ -263,6 +263,7 @@ public class GoGame : MonoBehaviour
     GoAudioManager audioManager;
     Slider quickMasterVolumeSlider;
     Button quickMuteButton;
+    Image quickMuteIcon;
     Slider settingsMasterSlider, settingsMusicSlider, settingsSfxSlider, settingsWarningSlider;
     Text settingsKataStatusText;
     Toggle settingsMuteToggle, settingsReduceMotionToggle;
@@ -1240,8 +1241,10 @@ public class GoGame : MonoBehaviour
         prt.anchorMin = new Vector2(1f, 0f);
         prt.anchorMax = new Vector2(1f, 1f);
         prt.pivot = new Vector2(1f, 0.5f);
-        prt.sizeDelta = new Vector2(GameSidebarWidth(), -2f * GoUiTheme.SafeAreaMarginY);
-        prt.anchoredPosition = new Vector2(-GoUiTheme.SafeAreaMarginX, 0f);
+        float safeX = GoUiTheme.SafeAreaMarginCanvasX(Screen.width, Screen.height);
+        float safeY = GoUiTheme.SafeAreaMarginCanvasY(Screen.width, Screen.height);
+        prt.sizeDelta = new Vector2(GameSidebarWidth(), -2f * safeY);
+        prt.anchoredPosition = new Vector2(-safeX, 0f);
 
         var vlg = pgo.AddComponent<VerticalLayoutGroup>();
         vlg.padding = new RectOffset(12, 12, 14, 14);
@@ -1280,6 +1283,10 @@ public class GoGame : MonoBehaviour
         btnPass = MakeButton(operationRow.transform, "停一手", 42f, HumanPass).gameObject;
         btnScore = MakeButton(operationRow.transform, "数目", 42f, OpenScorePopup).gameObject;
         btnResign = MakeButton(operationRow.transform, "认输", 42f, HumanResign).gameObject;
+        AttachButtonIcon(btnUndo.GetComponent<Button>(), GoIconCatalog.Undo);
+        AttachButtonIcon(btnPass.GetComponent<Button>(), GoIconCatalog.Pass);
+        AttachButtonIcon(btnScore.GetComponent<Button>(), GoIconCatalog.Score);
+        AttachButtonIcon(btnResign.GetComponent<Button>(), GoIconCatalog.Resign);
         btnClear = null;
         BuildTerminalDialogs(canvas.transform);
         var home = MakeButton(pt, "返回主界面", 42f, ReturnToMainMenu);
@@ -2332,8 +2339,12 @@ public class GoGame : MonoBehaviour
         menuSafeArea = safeArea.AddComponent<RectTransform>();
         menuSafeArea.anchorMin = Vector2.zero;
         menuSafeArea.anchorMax = Vector2.one;
-        menuSafeArea.offsetMin = new Vector2(GoUiTheme.SafeAreaMarginX, GoUiTheme.SafeAreaMarginY);
-        menuSafeArea.offsetMax = new Vector2(-GoUiTheme.SafeAreaMarginX, -GoUiTheme.SafeAreaMarginY);
+        menuSafeArea.offsetMin = new Vector2(
+            GoUiTheme.SafeAreaMarginCanvasX(Screen.width, Screen.height),
+            GoUiTheme.SafeAreaMarginCanvasY(Screen.width, Screen.height));
+        menuSafeArea.offsetMax = new Vector2(
+            -GoUiTheme.SafeAreaMarginCanvasX(Screen.width, Screen.height),
+            -GoUiTheme.SafeAreaMarginCanvasY(Screen.width, Screen.height));
 
         mainPanel = BuildMenuPanel("MainMenuPage", 420f, 600f, pt =>
         {
@@ -2688,6 +2699,7 @@ public class GoGame : MonoBehaviour
         var button = MakeButton(menuSafeArea != null ? menuSafeArea : menuCanvas.transform,
             "⚙ 设置", 40f, ShowSettings);
         settingsButtonRoot = button.gameObject;
+        AttachButtonIcon(button, GoIconCatalog.Settings);
         SetFixedWidth(button, 116f);
         var rect = button.GetComponent<RectTransform>();
         rect.anchorMin = rect.anchorMax = new Vector2(1f, 1f);
@@ -2749,6 +2761,7 @@ public class GoGame : MonoBehaviour
         quickMuteButton = MakeButton(root.transform, "静音", 32f,
             () => SetMuteFromUi(audioManager != null && !audioManager.IsMuted));
         SetFixedWidth(quickMuteButton, 56f);
+        quickMuteIcon = AttachButtonIcon(quickMuteButton, GoIconCatalog.Mute);
         SyncAudioControls();
     }
 
@@ -2852,6 +2865,9 @@ public class GoGame : MonoBehaviour
         {
             var label = quickMuteButton.GetComponentInChildren<Text>();
             if (label != null) label.text = audioManager.IsMuted ? "取消静音" : "静音";
+            if (quickMuteIcon != null)
+                quickMuteIcon.sprite = GoIconCatalog.Load(
+                    audioManager.IsMuted ? GoIconCatalog.Mute : GoIconCatalog.Volume);
         }
     }
 
@@ -3530,7 +3546,8 @@ public class GoGame : MonoBehaviour
     static float PanelHeightForScreen(float requestedHeight)
     {
         if (Screen.height <= 0) return requestedHeight;
-        float safeHeight = Mathf.Max(480f, Screen.height - 2f * GoUiTheme.SafeAreaMarginY);
+        float safeY = GoUiTheme.SafeAreaMarginCanvasY(Screen.width, Screen.height);
+        float safeHeight = Mathf.Max(480f, GoUiTheme.ReferenceResolution.y - 2f * safeY);
         return Mathf.Min(requestedHeight, safeHeight);
     }
 
@@ -3551,10 +3568,7 @@ public class GoGame : MonoBehaviour
 
     static float GameSidebarWidth()
     {
-        if (Screen.width <= 1366) return GoUiTheme.CompactSidebarWidth;
-        if (Screen.width >= 1920) return GoUiTheme.DesktopSidebarWidth;
-        return Mathf.Lerp(GoUiTheme.CompactSidebarWidth, GoUiTheme.DesktopSidebarWidth,
-            Mathf.InverseLerp(1366f, 1920f, Screen.width));
+        return GoUiTheme.SidebarWidthCanvas(Screen.width, Screen.height);
     }
 
     void ApplyResponsiveLayout()
@@ -3566,8 +3580,10 @@ public class GoGame : MonoBehaviour
         {
             menuSafeArea.anchorMin = Vector2.zero;
             menuSafeArea.anchorMax = Vector2.one;
-            menuSafeArea.offsetMin = new Vector2(GoUiTheme.SafeAreaMarginX, GoUiTheme.SafeAreaMarginY);
-            menuSafeArea.offsetMax = new Vector2(-GoUiTheme.SafeAreaMarginX, -GoUiTheme.SafeAreaMarginY);
+            float safeX = GoUiTheme.SafeAreaMarginCanvasX(Screen.width, Screen.height);
+            float safeY = GoUiTheme.SafeAreaMarginCanvasY(Screen.width, Screen.height);
+            menuSafeArea.offsetMin = new Vector2(safeX, safeY);
+            menuSafeArea.offsetMax = new Vector2(-safeX, -safeY);
         }
 
         FitPanelHeight(mainPanel, 600f);
@@ -3578,15 +3594,21 @@ public class GoGame : MonoBehaviour
         if (gameUiPanel != null)
         {
             var rect = gameUiPanel.GetComponent<RectTransform>();
+            float safeX = GoUiTheme.SafeAreaMarginCanvasX(Screen.width, Screen.height);
+            float safeY = GoUiTheme.SafeAreaMarginCanvasY(Screen.width, Screen.height);
             rect.sizeDelta = new Vector2(GameSidebarWidth(),
-                -2f * GoUiTheme.SafeAreaMarginY);
-            rect.anchoredPosition = new Vector2(-GoUiTheme.SafeAreaMarginX, 0f);
+                -2f * safeY);
+            rect.anchoredPosition = new Vector2(-safeX, 0f);
         }
 
         if (cam != null)
         {
             float availableWidth = Mathf.Max(1f,
-                Screen.width - GameSidebarWidth() - 2f * GoUiTheme.SafeAreaMarginX);
+                Screen.width - GoUiTheme.PhysicalPixelsForCanvasUnits(
+                    GameSidebarWidth(), Screen.width, Screen.height)
+                - 2f * GoUiTheme.PhysicalPixelsForCanvasUnits(
+                    GoUiTheme.SafeAreaMarginCanvasX(Screen.width, Screen.height),
+                    Screen.width, Screen.height));
             cam.rect = new Rect(0f, 0f,
                 Mathf.Clamp01(availableWidth / Mathf.Max(1f, Screen.width)), 1f);
         }
@@ -3843,7 +3865,9 @@ public class GoGame : MonoBehaviour
         go.transform.SetParent(parent, false);
         var t = go.AddComponent<Text>();
         t.font = font; t.text = content;
-        t.fontSize = Mathf.Max(fontSize, Mathf.RoundToInt(GoUiTheme.MinimumBodyFontSize));
+        t.fontSize = Mathf.Max(fontSize,
+            GoUiTheme.MinimumBodyFontSizeForCanvas(
+                parent != null ? parent.GetComponentInParent<Canvas>() : null));
         t.color = color;
         t.alignment = anchor;
         t.horizontalOverflow = HorizontalWrapMode.Wrap;
@@ -3871,6 +3895,30 @@ public class GoGame : MonoBehaviour
         hlg.childForceExpandWidth = true;
         hlg.childForceExpandHeight = true;
         return go.transform;
+    }
+
+    Image AttachButtonIcon(Button button, string key)
+    {
+        if (button == null || string.IsNullOrEmpty(key)) return null;
+        var iconGo = new GameObject("Icon");
+        iconGo.transform.SetParent(button.transform, false);
+        var rect = iconGo.GetComponent<RectTransform>();
+        rect.anchorMin = rect.anchorMax = new Vector2(0f, 0.5f);
+        rect.pivot = new Vector2(0f, 0.5f);
+        rect.anchoredPosition = new Vector2(10f, 0f);
+        rect.sizeDelta = new Vector2(22f, 22f);
+        var image = iconGo.AddComponent<Image>();
+        image.sprite = GoIconCatalog.Load(key);
+        image.color = uiTheme != null ? uiTheme.Gold : Color.white;
+        image.raycastTarget = false;
+
+        var labelText = button.GetComponentInChildren<Text>();
+        if (labelText != null)
+        {
+            var labelRect = labelText.rectTransform;
+            labelRect.offsetMin = new Vector2(26f, labelRect.offsetMin.y);
+        }
+        return image;
     }
 
     Button MakeButton(Transform parent, string label, float height,

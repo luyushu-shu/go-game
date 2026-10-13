@@ -3,13 +3,13 @@ using UnityEngine;
 
 public static class GoIconCatalog
 {
-    public const string Settings = "UI/Icons/icon_settings_64";
-    public const string Volume = "UI/Icons/icon_volume_64";
-    public const string Mute = "UI/Icons/icon_mute_64";
-    public const string Undo = "UI/Icons/icon_undo_64";
-    public const string Pass = "UI/Icons/icon_pass_64";
-    public const string Score = "UI/Icons/icon_score_64";
-    public const string Resign = "UI/Icons/icon_resign_64";
+    public const string Settings = GoRuntimeAssetManifest.SettingsIconKey;
+    public const string Volume = GoRuntimeAssetManifest.VolumeIconKey;
+    public const string Mute = GoRuntimeAssetManifest.MuteIconKey;
+    public const string Undo = GoRuntimeAssetManifest.UndoIconKey;
+    public const string Pass = GoRuntimeAssetManifest.PassIconKey;
+    public const string Score = GoRuntimeAssetManifest.ScoreIconKey;
+    public const string Resign = GoRuntimeAssetManifest.ResignIconKey;
     public const string BoardMoveNumbers = GoRuntimeAssetManifest.BoardMoveNumbersKey;
     public const string BoardCoordinates = GoRuntimeAssetManifest.BoardCoordinatesKey;
     public const string BoardSituation = GoRuntimeAssetManifest.BoardSituationKey;
@@ -34,15 +34,24 @@ public static class GoIconCatalog
 
         Sprite fallback;
         if (fallbacks.TryGetValue(key, out fallback)) return fallback;
-        var texture = new Texture2D(1, 1, TextureFormat.RGBA32, false)
+        Debug.LogError("Missing runtime icon sprite: " + key);
+        var texture = new Texture2D(32, 32, TextureFormat.RGBA32, false)
         {
             name = key + "_RuntimeFallback",
             hideFlags = HideFlags.HideAndDontSave
         };
-        texture.SetPixel(0, 0, Color.white);
+        int seed = Mathf.Abs(key.GetHashCode());
+        Color tint = Color.HSVToRGB((seed % 360) / 360f, 0.45f, 0.85f);
+        for (int y = 0; y < 32; y++)
+        for (int x = 0; x < 32; x++)
+        {
+            bool edge = x < 2 || x >= 30 || y < 2 || y >= 30;
+            bool mark = (x == y || x == 31 - y || x == 16 || y == 16);
+            texture.SetPixel(x, y, edge || mark ? Color.white : tint);
+        }
         texture.Apply();
-        fallback = Sprite.Create(texture, new Rect(0f, 0f, 1f, 1f),
-            new Vector2(0.5f, 0.5f), 1f);
+        fallback = Sprite.Create(texture, new Rect(0f, 0f, 32f, 32f),
+            new Vector2(0.5f, 0.5f), 32f);
         fallback.name = key + "_RuntimeFallback";
         fallback.hideFlags = HideFlags.HideAndDontSave;
         fallbacks[key] = fallback;

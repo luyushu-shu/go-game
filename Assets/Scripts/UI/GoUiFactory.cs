@@ -7,9 +7,9 @@ public sealed class GoUiFactory : MonoBehaviour
 {
     public GoUiTheme Theme { get; set; }
 
-    const string PrimaryBackground = "button_primary_9slice_256";
-    const string SecondaryBackground = "button_secondary_9slice_256";
-    const string DangerBackground = "button_danger_9slice_256";
+    const string PrimaryBackground = GoRuntimeAssetManifest.ButtonPrimaryKey;
+    const string SecondaryBackground = GoRuntimeAssetManifest.ButtonSecondaryKey;
+    const string DangerBackground = GoRuntimeAssetManifest.ButtonDangerKey;
 
     readonly List<Sprite> fallbackSprites = new List<Sprite>();
     readonly List<Texture2D> fallbackTextures = new List<Texture2D>();
@@ -72,7 +72,8 @@ public sealed class GoUiFactory : MonoBehaviour
         var text = go.AddComponent<Text>();
         text.font = theme.FallbackFont;
         text.text = value ?? string.Empty;
-        text.fontSize = Mathf.Max(fontSize, Mathf.RoundToInt(GoUiTheme.MinimumBodyFontSize));
+        text.fontSize = Mathf.Max(fontSize,
+            GoUiTheme.MinimumBodyFontSizeForCanvas(go.GetComponentInParent<Canvas>()));
         text.color = color;
         text.alignment = anchor;
         text.horizontalOverflow = HorizontalWrapMode.Wrap;
@@ -273,21 +274,38 @@ public sealed class GoUiFactory : MonoBehaviour
     {
         string key = style == GoButtonStyle.Primary ? PrimaryBackground
             : style == GoButtonStyle.Danger ? DangerBackground : SecondaryBackground;
+        if (GoRuntimeAssetManifest.Instance != null)
+        {
+            var manifestSprite = GoRuntimeAssetManifest.Instance.GetSprite(key);
+            if (manifestSprite != null) return manifestSprite;
+        }
         var sprite = Resources.Load<Sprite>(key);
-        if (sprite == null) sprite = Resources.Load<Sprite>("UI/Buttons/" + key);
+        if (sprite == null && key.StartsWith("UI/Buttons/"))
+            sprite = Resources.Load<Sprite>(key.Substring("UI/Buttons/".Length));
         if (sprite != null) return sprite;
 
-        // The art package is introduced by a later migration task. Keep the
-        // foundation usable in the meantime while preserving the asset key.
-        var texture = new Texture2D(1, 1, TextureFormat.RGBA32, false)
+        // A missing packaged asset is a release error, but keep the diagnostic
+        // visible and non-blank instead of silently producing a 1x1 pixel.
+        Debug.LogError("Missing runtime button sprite: " + key);
+        var texture = new Texture2D(32, 32, TextureFormat.RGBA32, false)
         {
             name = key + "_RuntimeFallback",
             hideFlags = HideFlags.HideAndDontSave
         };
-        texture.SetPixel(0, 0, Color.white);
+        Color baseColor = style == GoButtonStyle.Danger ? new Color(0.65f, 0.18f, 0.14f)
+            : style == GoButtonStyle.Primary ? new Color(0.75f, 0.55f, 0.20f)
+            : new Color(0.20f, 0.16f, 0.12f);
+        for (int y = 0; y < 32; y++)
+        for (int x = 0; x < 32; x++)
+        {
+            bool edge = x < 2 || x >= 30 || y < 2 || y >= 30;
+            bool mark = x == y || x == 31 - y;
+            texture.SetPixel(x, y, edge || mark ? Color.white : baseColor);
+        }
         texture.Apply();
-        sprite = Sprite.Create(texture, new Rect(0f, 0f, 1f, 1f),
-            new Vector2(0.5f, 0.5f), 1f);
+        sprite = Sprite.Create(texture, new Rect(0f, 0f, 32f, 32f),
+            new Vector2(0.5f, 0.5f), 32f, 0, SpriteMeshType.FullRect,
+            new Vector4(4f, 4f, 4f, 4f));
         sprite.name = key;
         sprite.hideFlags = HideFlags.HideAndDontSave;
         fallbackTextures.Add(texture);

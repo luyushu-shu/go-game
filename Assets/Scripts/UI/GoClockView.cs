@@ -111,7 +111,9 @@ public sealed class GoClockView : MonoBehaviour
         if (timeText == null)
             timeText = CreateText(root, "Time", 22, NormalColor, TextAnchor.MiddleCenter);
         if (stateText == null)
-            stateText = CreateText(root, "State", 11, new Color(0.725f, 0.667f, 0.549f, 1f), TextAnchor.LowerCenter);
+            stateText = CreateText(root, "State",
+                GoUiTheme.MinimumBodyFontSizeForCanvas(GetComponentInParent<Canvas>()),
+                new Color(0.725f, 0.667f, 0.549f, 1f), TextAnchor.LowerCenter);
 
         var group = GetComponent<VerticalLayoutGroup>();
         if (group == null)
@@ -132,7 +134,8 @@ public sealed class GoClockView : MonoBehaviour
         var text = go.AddComponent<Text>();
         text.font = Font.CreateDynamicFontFromOSFont(new[] { "Microsoft YaHei", "SimHei", "Arial" }, size);
         if (text.font == null) text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        text.fontSize = size;
+        text.fontSize = Mathf.Max(size,
+            GoUiTheme.MinimumBodyFontSizeForCanvas(parent.GetComponentInParent<Canvas>()));
         text.color = color;
         text.alignment = anchor;
         text.horizontalOverflow = HorizontalWrapMode.Overflow;

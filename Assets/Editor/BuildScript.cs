@@ -33,7 +33,17 @@ public static class BuildScript
             LoadRequired<Sprite>("Assets/Art/Board/marker_ai_best_128.png"),
             LoadRequired<Sprite>("Assets/Art/UI/Panels/panel_paper_9slice_512.png"),
             LoadRequired<Sprite>("Assets/Art/UI/Panels/panel_ink_9slice_512.png"),
+            LoadRequired<Sprite>("Assets/Art/UI/Buttons/button_primary_9slice_256.png"),
+            LoadRequired<Sprite>("Assets/Art/UI/Buttons/button_secondary_9slice_256.png"),
+            LoadRequired<Sprite>("Assets/Art/UI/Buttons/button_danger_9slice_256.png"),
             LoadRequired<Sprite>("Assets/Art/UI/Buttons/button_icon_96.png"),
+            LoadRequired<Sprite>("Assets/Art/UI/Icons/icon_settings_64.png"),
+            LoadRequired<Sprite>("Assets/Art/UI/Icons/icon_volume_64.png"),
+            LoadRequired<Sprite>("Assets/Art/UI/Icons/icon_mute_64.png"),
+            LoadRequired<Sprite>("Assets/Art/UI/Icons/icon_undo_64.png"),
+            LoadRequired<Sprite>("Assets/Art/UI/Icons/icon_pass_64.png"),
+            LoadRequired<Sprite>("Assets/Art/UI/Icons/icon_score_64.png"),
+            LoadRequired<Sprite>("Assets/Art/UI/Icons/icon_resign_64.png"),
             LoadRequired<Sprite>("Assets/Art/UI/Icons/icon_board_moves_64.png"),
             LoadRequired<Sprite>("Assets/Art/UI/Icons/icon_board_coordinates_64.png"),
             LoadRequired<Sprite>("Assets/Art/UI/Icons/icon_board_situation_64.png"),
@@ -47,6 +57,8 @@ public static class BuildScript
             LoadRequired<AudioClip>("Assets/Art/Audio/bgm_review.ogg"));
         EditorSceneManager.SaveScene(scene, scenePath);
         EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(scenePath, true) };
+
+        LogOptionalKataGoStatus();
 
         var opts = new BuildPlayerOptions
         {
@@ -73,5 +85,26 @@ public static class BuildScript
         if (asset == null)
             throw new BuildFailedException("Missing required Qiyi runtime asset: " + assetPath);
         return asset;
+    }
+
+    static void LogOptionalKataGoStatus()
+    {
+        const string dir = "Tools/KataGo";
+        bool program = System.IO.File.Exists(dir + "/katago.exe")
+            || System.IO.File.Exists(dir + "/katago-eigen.exe");
+        bool model = System.IO.Directory.Exists(dir)
+            && System.IO.Directory.GetFiles(
+                dir, "*.bin*", System.IO.SearchOption.TopDirectoryOnly).Length > 0;
+        if (!program || !model)
+        {
+            Debug.LogWarning(
+                "RELEASE CHECK: KataGo is not bundled in this build. "
+                + "Users must install/configure the executable and model under Tools/KataGo; "
+                + "the game will fall back to the local engine when unavailable.");
+        }
+        else
+        {
+            Debug.Log("RELEASE CHECK: KataGo executable and model detected in Tools/KataGo.");
+        }
     }
 }
