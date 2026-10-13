@@ -10,6 +10,7 @@ public static class GoIconCatalog
     public const string Pass = "UI/Icons/icon_pass_64";
     public const string Score = "UI/Icons/icon_score_64";
     public const string Resign = "UI/Icons/icon_resign_64";
+    public const string BoardTool = "UI/Icons/icon_board_tool_64";
 
     static readonly Dictionary<string, Sprite> fallbacks = new Dictionary<string, Sprite>();
 

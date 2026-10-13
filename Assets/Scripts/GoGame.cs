@@ -135,10 +135,7 @@ public class GoGame : MonoBehaviour
 
     Camera cam;
     Transform boardRoot;
-    SpriteRenderer boardSr;
-    SpriteRenderer[,] stoneSr;
-    SpriteRenderer[,] deadSr;
-    SpriteRenderer[,] terrSr;
+    GoBoardSkin boardSkin;
     public enum GoMarkType
     {
         None = 0,
@@ -155,9 +152,8 @@ public class GoGame : MonoBehaviour
     Sprite markCrossSpr, markTriangleSpr, markSquareSpr, markCircleSpr;
     List<Button> optMarkButtons = new List<Button>();
 
-    TextMesh[,] moveNumMeshes;
     SpriteRenderer ghostSr, markerSr;
-    Sprite stoneBlack, stoneWhite, deadXSpr, ringSpr, boxSpr;
+    Sprite stoneBlack, stoneWhite;
     Font numberFont;
 
     Font font;
@@ -172,9 +168,8 @@ public class GoGame : MonoBehaviour
     System.DateTime gameStartedAt;
     bool kifuDraftReady;
     string draftTitle, draftBlack, draftWhite, draftBlackRank, draftWhiteRank, draftDesc;
-    GameObject studyBoardUi, studyLabelRoot;
-    Text studyTerritoryText, studyBtnMovesText, studyBtnCoordsText, studyBtnTerrText;
-    Text[] studyColBot, studyColTop, studyRowLeft, studyRowRight;
+    GameObject studyBoardUi;
+    Text studyTerritoryText;
     static readonly Color MoveNumOnBlack = Color.white;
     static readonly Color MoveNumOnWhite = new Color(0.08f, 0.08f, 0.08f);
     bool showMoveNums, showCoords, showTerritory;
@@ -234,11 +229,6 @@ public class GoGame : MonoBehaviour
         cam.backgroundColor = new Color(0.11f, 0.09f, 0.07f);
         cam.transform.position = new Vector3(0f, 0f, -10f);
 
-        stoneBlack = MakeStoneSprite(true);
-        stoneWhite = MakeStoneSprite(false);
-        deadXSpr = MakeDeadXSprite();
-        ringSpr = MakeRingSprite();
-        boxSpr = MakeBoxSprite();
         candBadgeSpr = MakeBadgeSprite();
         markCrossSpr = MakeMarkCrossSprite();
         markTriangleSpr = MakeMarkTriangleSprite();
@@ -646,256 +636,49 @@ public class GoGame : MonoBehaviour
 
         if (inside && !overUI && Input.GetMouseButtonDown(0) && !reviewingKifu)
         {
-            if (rules.Phase == GoPhase.Scoring) { rules.ToggleDead(x, y); Refresh(); }
-            else HumanPlay(x, y);
+            boardSkin.NotifyPointClick(x, y);
         }
+    }
+
+    void HandleBoardPointClick(int x, int y)
+    {
+        if (reviewingKifu || inMenu || rules == null) return;
+        if (rules.Phase == GoPhase.Scoring) { rules.ToggleDead(x, y); Refresh(); }
+        else HumanPlay(x, y);
+    }
+
+    void OnBoardToolbarStateChanged(bool moveNumbers, bool coordinates, bool territory)
+    {
+        showMoveNums = moveNumbers;
+        showCoords = coordinates;
+        showTerritory = territory;
+        RefreshStudyVisuals();
+        Refresh();
     }
 
     /* ---------------- 棋盘渲染 ---------------- */
 
     void BuildBoard()
     {
-        if (boardRoot != null) Destroy(boardRoot.gameObject);
-        boardRoot = new GameObject("BoardRoot").transform;
+        if (boardSkin == null) boardSkin = gameObject.AddComponent<GoBoardSkin>();
+        boardSkin.OnToolbarStateChanged = OnBoardToolbarStateChanged;
+        boardSkin.Build(boardSize, transform, numberFont, HandleBoardPointClick);
+        boardRoot = boardSkin.BoardRoot;
+        stoneBlack = boardSkin.BlackStoneSprite;
+        stoneWhite = boardSkin.WhiteStoneSprite;
+        ghostSr = boardSkin.GhostRenderer;
+        ghostMarkSr = boardSkin.GhostMarkRenderer;
+        markerSr = boardSkin.LastMoveRenderer;
+        markSr = boardSkin.MarkRenderers;
         int n = boardSize;
-        int cellPx = n >= 19 ? 72 : n >= 13 ? 100 : 140;
-
-        var bo = new GameObject("Board");
-        bo.transform.SetParent(boardRoot, false);
-        boardSr = bo.AddComponent<SpriteRenderer>();
-        boardSr.sprite = MakeBoardSprite(n, cellPx);
-        boardSr.sortingOrder = 0;
-        bo.transform.position = new Vector3((n - 1) / 2f, (n - 1) / 2f, 0f);
-
-        stoneSr = new SpriteRenderer[n, n];
-        deadSr = new SpriteRenderer[n, n];
-        terrSr = new SpriteRenderer[n, n];
-        moveNumMeshes = new TextMesh[n, n];
-        markSr = new SpriteRenderer[n, n];
         if (boardMarks == null || boardMarks.Length != n * n)
         {
             boardMarks = new int[n * n];
         }
-        for (int y = 0; y < n; y++)
-        for (int x = 0; x < n; x++)
-        {
-            var so = new GameObject($"s{x}_{y}");
-            so.transform.SetParent(boardRoot, false);
-            so.transform.position = new Vector3(x, y, 0f);
-            so.transform.localScale = Vector3.one * 0.94f;
-            var sr = so.AddComponent<SpriteRenderer>();
-            sr.sortingOrder = 1; sr.enabled = false;
-            stoneSr[x, y] = sr;
-
-            var xo = new GameObject("deadX");
-            xo.transform.SetParent(so.transform, false);
-            xo.transform.localPosition = Vector3.zero;
-            var xr = xo.AddComponent<SpriteRenderer>();
-            xr.sprite = deadXSpr; xr.sortingOrder = 2; xr.enabled = false;
-            deadSr[x, y] = xr;
-
-            var to = new GameObject("terr");
-            to.transform.SetParent(so.transform, false);
-            to.transform.localPosition = Vector3.zero;
-            to.transform.localScale = Vector3.one * 0.5f;
-            var tsr = to.AddComponent<SpriteRenderer>();
-            tsr.sprite = boxSpr;
-            tsr.sortingOrder = 1;
-            tsr.enabled = false;
-            terrSr[x, y] = tsr;
-
-            var mo = new GameObject("mark");
-            mo.transform.SetParent(so.transform, false);
-            mo.transform.localPosition = Vector3.zero;
-            var msr = mo.AddComponent<SpriteRenderer>();
-            msr.sortingOrder = 5;
-            msr.enabled = false;
-            markSr[x, y] = msr;
-
-            var numGo = new GameObject("MoveNum");
-            numGo.transform.SetParent(so.transform, false);
-            numGo.transform.localPosition = new Vector3(0f, 0.02f, 0f);
-            numGo.transform.localRotation = Quaternion.identity;
-            numGo.transform.localScale = Vector3.one;
-            var tm = numGo.AddComponent<TextMesh>();
-            tm.font = numberFont;
-            tm.fontSize = 32;
-            tm.characterSize = 0.095f;
-            tm.anchor = TextAnchor.MiddleCenter;
-            tm.alignment = TextAlignment.Center;
-            tm.fontStyle = FontStyle.Normal;
-            tm.richText = false;
-            tm.text = "";
-            var mr = numGo.GetComponent<MeshRenderer>();
-            if (numberFont != null && numberFont.material != null)
-                mr.sharedMaterial = numberFont.material;
-            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            mr.receiveShadows = false;
-            mr.sortingOrder = 4;
-            numGo.SetActive(false);
-            moveNumMeshes[x, y] = tm;
-        }
-
-        var gh = new GameObject("Ghost");
-        gh.transform.SetParent(boardRoot, false);
-        gh.transform.localScale = Vector3.one * 0.94f;
-        ghostSr = gh.AddComponent<SpriteRenderer>();
-        ghostSr.sortingOrder = 3;
-        ghostSr.color = new Color(1f, 1f, 1f, 0.45f);
-        ghostSr.enabled = false;
-
-        var gm = new GameObject("GhostMark");
-        gm.transform.SetParent(boardRoot, false);
-        gm.transform.localScale = Vector3.one * 0.94f;
-        ghostMarkSr = gm.AddComponent<SpriteRenderer>();
-        ghostMarkSr.sortingOrder = 5;
-        ghostMarkSr.enabled = false;
-
-        var mk = new GameObject("Marker");
-        mk.transform.SetParent(boardRoot, false);
-        markerSr = mk.AddComponent<SpriteRenderer>();
-        markerSr.sprite = ringSpr;
-        markerSr.sortingOrder = 3;
-        markerSr.enabled = false;
-
         cam.orthographicSize = (n + 1) / 2f + 0.7f;
         cam.transform.position = new Vector3((n - 1) / 2f, (n - 1) / 2f, -10f);
-        BuildStudyBoardLabels(n);
         BuildAnalysisOverlays();
         UpdateBoardMarksVisuals();
-    }
-
-    static int[] StarPoints(int n) => GoRules.StarPoints(n);
-
-    static void FillRect(Color32[] px, int res, int x0, int y0, int x1, int y1, Color32 c)
-    {
-        if (x0 < 0) x0 = 0; if (y0 < 0) y0 = 0;
-        if (x1 > res - 1) x1 = res - 1; if (y1 > res - 1) y1 = res - 1;
-        for (int y = y0; y <= y1; y++)
-        for (int x = x0; x <= x1; x++)
-            px[y * res + x] = c;
-    }
-
-    static void FillCircle(Color32[] px, int res, int cx, int cy, int r, Color32 c)
-    {
-        for (int y = cy - r; y <= cy + r; y++)
-        for (int x = cx - r; x <= cx + r; x++)
-        {
-            if (x < 0 || y < 0 || x >= res || y >= res) continue;
-            if ((x - cx) * (x - cx) + (y - cy) * (y - cy) <= r * r) px[y * res + x] = c;
-        }
-    }
-
-    Sprite MakeBoardSprite(int n, int cellPx)
-    {
-        int res = cellPx * (n + 1);
-        var px = new Color32[res * res];
-        Color32 w1 = new Color32(0xE8, 0xB8, 0x60, 0xFF);
-        Color32 w2 = new Color32(0xCF, 0x99, 0x3C, 0xFF);
-        for (int y = 0; y < res; y++)
-        {
-            float g = y / (float)res;
-            for (int x = 0; x < res; x++)
-            {
-                float grain = Mathf.Sin(x * 0.045f + Mathf.Sin(y * 0.012f) * 2f) * 0.5f + 0.5f;
-                float t = Mathf.Clamp01(g * 0.5f + grain * 0.2f);
-                px[y * res + x] = Color32.Lerp(w1, w2, t);
-            }
-        }
-        Color32 line = new Color32(0x50, 0x32, 0x0F, 0xE6);
-        for (int i = 0; i < n; i++)
-        {
-            int c = (i + 1) * cellPx;
-            int th = (i == 0 || i == n - 1) ? 4 : 2;
-            FillRect(px, res, c - th / 2, cellPx, c + th / 2, res - cellPx, line);
-            FillRect(px, res, cellPx, c - th / 2, res - cellPx, c + th / 2, line);
-        }
-        int sr = Mathf.Max(4, cellPx / 10);
-        Color32 star = new Color32(0x50, 0x32, 0x0F, 0xF0);
-        foreach (int a in StarPoints(n))
-        foreach (int b in StarPoints(n))
-            FillCircle(px, res, (a + 1) * cellPx, (b + 1) * cellPx, sr, star);
-
-        var tex = new Texture2D(res, res, TextureFormat.RGBA32, false);
-        tex.filterMode = FilterMode.Bilinear;
-        tex.SetPixels32(px);
-        tex.Apply(false, false);
-        return Sprite.Create(tex, new Rect(0, 0, res, res), new Vector2(0.5f, 0.5f), cellPx);
-    }
-
-    Sprite MakeStoneSprite(bool black)
-    {
-        int s = 128;
-        float r = s / 2f - 1.5f;
-        var px = new Color32[s * s];
-        Vector2 hi = new Vector2(s * 0.36f, s * 0.64f);
-        Color32 lite = black ? new Color32(0x5A, 0x5A, 0x5A, 0xFF) : new Color32(0xFF, 0xFF, 0xFF, 0xFF);
-        Color32 dark = black ? new Color32(0x06, 0x06, 0x06, 0xFF) : new Color32(0xC2, 0xC2, 0xC2, 0xFF);
-        for (int y = 0; y < s; y++)
-        for (int x = 0; x < s; x++)
-        {
-            float dx = x - s / 2f, dy = y - s / 2f;
-            float d = Mathf.Sqrt(dx * dx + dy * dy);
-            float a = Mathf.Clamp01(r - d);
-            if (a <= 0f) { px[y * s + x] = new Color32(0, 0, 0, 0); continue; }
-            float t = Mathf.Clamp01(Vector2.Distance(new Vector2(x, y), hi) / (r * 1.7f));
-            Color32 c = Color32.Lerp(lite, dark, t);
-            c.a = (byte)(255 * a);
-            px[y * s + x] = c;
-        }
-        var tex = new Texture2D(s, s, TextureFormat.RGBA32, false);
-        tex.SetPixels32(px); tex.Apply(false, false);
-        return Sprite.Create(tex, new Rect(0, 0, s, s), new Vector2(0.5f, 0.5f), s);
-    }
-
-    Sprite MakeRingSprite()
-    {
-        int s = 128;
-        float r0 = s * 0.22f, wdt = s * 0.05f;
-        var px = new Color32[s * s];
-        for (int y = 0; y < s; y++)
-        for (int x = 0; x < s; x++)
-        {
-            float dx = x - s / 2f, dy = y - s / 2f;
-            float d = Mathf.Sqrt(dx * dx + dy * dy);
-            float a = Mathf.Clamp01(wdt - Mathf.Abs(d - r0));
-            px[y * s + x] = new Color32(0xFF, 0xFF, 0xFF, (byte)(255 * a));
-        }
-        var tex = new Texture2D(s, s, TextureFormat.RGBA32, false);
-        tex.SetPixels32(px); tex.Apply(false, false);
-        return Sprite.Create(tex, new Rect(0, 0, s, s), new Vector2(0.5f, 0.5f), s);
-    }
-
-    Sprite MakeBoxSprite()
-    {
-        int s = 32;
-        var px = new Color32[s * s];
-        Color32 on = new Color32(255, 255, 255, 255);
-        for (int i = 0; i < px.Length; i++) px[i] = on;
-        var tex = new Texture2D(s, s, TextureFormat.RGBA32, false);
-        tex.filterMode = FilterMode.Bilinear;
-        tex.SetPixels32(px); tex.Apply(false, false);
-        return Sprite.Create(tex, new Rect(0, 0, s, s), new Vector2(0.5f, 0.5f), s);
-    }
-
-    Sprite MakeDeadXSprite()
-    {
-        int s = 128;
-        float r = s / 2f - 4f, wdt = s * 0.05f;
-        var px = new Color32[s * s];
-        for (int y = 0; y < s; y++)
-        for (int x = 0; x < s; x++)
-        {
-            float dx = x - s / 2f, dy = y - s / 2f;
-            if (Mathf.Sqrt(dx * dx + dy * dy) > r) { px[y * s + x] = new Color32(0, 0, 0, 0); continue; }
-            float d1 = Mathf.Abs(x - y) / 1.4142f;
-            float d2 = Mathf.Abs(x + y - s) / 1.4142f;
-            float a = Mathf.Clamp01(wdt - Mathf.Min(d1, d2));
-            px[y * s + x] = new Color32(0xC0, 0x39, 0x2B, (byte)(230 * a));
-        }
-        var tex = new Texture2D(s, s, TextureFormat.RGBA32, false);
-        tex.SetPixels32(px); tex.Apply(false, false);
-        return Sprite.Create(tex, new Rect(0, 0, s, s), new Vector2(0.5f, 0.5f), s);
     }
 
     static float DistToSegment(Vector2 p, Vector2 a, Vector2 b)
@@ -1935,39 +1718,7 @@ public class GoGame : MonoBehaviour
     {
         studyBoardUi = new GameObject("StudyBoardUi");
         studyBoardUi.transform.SetParent(canvasRoot, false);
-        var barRt = studyBoardUi.AddComponent<RectTransform>();
-        barRt.anchorMin = new Vector2(0f, 0f);
-        barRt.anchorMax = new Vector2(0f, 0f);
-        barRt.pivot = new Vector2(0f, 0f);
-        barRt.anchoredPosition = new Vector2(12f, 12f);
-        barRt.sizeDelta = new Vector2(420f, 40f);
-
-        var hlg = studyBoardUi.AddComponent<HorizontalLayoutGroup>();
-        hlg.spacing = 6f;
-        hlg.childAlignment = TextAnchor.MiddleCenter;
-        hlg.childControlWidth = true;
-        hlg.childControlHeight = true;
-        hlg.childForceExpandWidth = true;
-        hlg.childForceExpandHeight = true;
-
-        studyBtnMovesText = MakeStudyToggleBtn(studyBoardUi.transform, "手数", () =>
-        {
-            showMoveNums = !showMoveNums;
-            SyncStudyToggleLabels();
-            RefreshStudyVisuals();
-        });
-        studyBtnCoordsText = MakeStudyToggleBtn(studyBoardUi.transform, "坐标", () =>
-        {
-            showCoords = !showCoords;
-            SyncStudyToggleLabels();
-            RefreshStudyVisuals();
-        });
-        studyBtnTerrText = MakeStudyToggleBtn(studyBoardUi.transform, "形势", () =>
-        {
-            showTerritory = !showTerritory;
-            SyncStudyToggleLabels();
-            RefreshStudyVisuals();
-        });
+        studyBoardUi.AddComponent<RectTransform>();
 
         var terrGo = new GameObject("Territory");
         terrGo.transform.SetParent(canvasRoot, false);
@@ -1991,74 +1742,18 @@ public class GoGame : MonoBehaviour
         studyTerritoryText.gameObject.SetActive(false);
     }
 
-    Text MakeStudyToggleBtn(Transform parent, string name, UnityEngine.Events.UnityAction cb)
-    {
-        var btn = MakeButton(parent, name + "：关", 36f, cb);
-        btn.GetComponentInChildren<Text>().fontSize = 15;
-        return btn.GetComponentInChildren<Text>();
-    }
-
     void SyncStudyToggleLabels()
     {
-        if (studyBtnMovesText != null)
-            studyBtnMovesText.text = showMoveNums ? "手数：开" : "手数：关";
-        if (studyBtnCoordsText != null)
-            studyBtnCoordsText.text = showCoords ? "坐标：开" : "坐标：关";
-        if (studyBtnTerrText != null)
-            studyBtnTerrText.text = showTerritory ? "形势：开" : "形势：关";
         if (studyTerritoryText != null)
             studyTerritoryText.gameObject.SetActive(BoardOverlayOn && showTerritory);
-    }
-
-    void BuildStudyBoardLabels(int n)
-    {
-        if (studyLabelRoot != null) Destroy(studyLabelRoot);
-        studyColBot = new Text[n];
-        studyColTop = new Text[n];
-        studyRowLeft = new Text[n];
-        studyRowRight = new Text[n];
-
-        studyLabelRoot = new GameObject("StudyLabels");
-        studyLabelRoot.transform.SetParent(boardRoot, false);
-        var canvas = studyLabelRoot.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.WorldSpace;
-        canvas.worldCamera = cam;
-        canvas.overrideSorting = true;
-        canvas.sortingOrder = 10;
-        var crt = studyLabelRoot.GetComponent<RectTransform>();
-        crt.sizeDelta = new Vector2(n * 100, n * 100);
-        studyLabelRoot.transform.localScale = Vector3.one * 0.01f;
-        studyLabelRoot.transform.position = new Vector3((n - 1) / 2f, (n - 1) / 2f, 0f);
-
-        for (int i = 0; i < n; i++)
+        if (boardSkin != null)
         {
-            studyColBot[i] = MakeBoardOverlayText(canvas.transform, i, -0.72f, n, ColLabel(i), 24, Dim);
-            studyColTop[i] = MakeBoardOverlayText(canvas.transform, i, n - 1 + 0.72f, n, ColLabel(i), 24, Dim);
-            studyRowLeft[i] = MakeBoardOverlayText(canvas.transform, -0.72f, i, n, RowLabel(i), 24, Dim);
-            studyRowRight[i] = MakeBoardOverlayText(canvas.transform, n - 1 + 0.72f, i, n, RowLabel(i), 24, Dim);
+            boardSkin.SetToolbarState(showMoveNums, showCoords, showTerritory);
+            boardSkin.SetToolbarVisible(BoardOverlayOn);
         }
-
-        studyLabelRoot.SetActive(false);
     }
 
-    Text MakeBoardOverlayText(Transform parent, float gx, float gy, int n, string text, int fontSize, Color color)
-    {
-        var go = new GameObject("Lbl");
-        go.transform.SetParent(parent, false);
-        var rt = go.AddComponent<RectTransform>();
-        rt.sizeDelta = new Vector2(90f, 36f);
-        rt.anchoredPosition = new Vector2((gx - (n - 1) / 2f) * 100f, (gy - (n - 1) / 2f) * 100f);
-        var t = go.AddComponent<Text>();
-        t.font = font;
-        t.text = text;
-        t.fontSize = fontSize;
-        t.color = color;
-        t.alignment = TextAnchor.MiddleCenter;
-        t.horizontalOverflow = HorizontalWrapMode.Overflow;
-        t.verticalOverflow = VerticalWrapMode.Overflow;
-        t.raycastTarget = false;
-        return t;
-    }
+    bool BoardOverlayOn => (inStudyMode || reviewingKifu || vsAI) && !inMenu;
 
     static string ColLabel(int x)
     {
@@ -2068,50 +1763,12 @@ public class GoGame : MonoBehaviour
 
     static string RowLabel(int y) => (y + 1).ToString();
 
-    bool BoardOverlayOn => (inStudyMode || reviewingKifu || vsAI) && !inMenu;
-
     void RefreshStudyVisuals()
     {
         bool on = BoardOverlayOn;
         if (studyBoardUi != null) studyBoardUi.SetActive(on);
-        if (studyLabelRoot != null) studyLabelRoot.SetActive(on && showCoords);
         SyncStudyToggleLabels();
-
-        if (!on) return;
-        int n = boardSize;
-
-        if (moveNumMeshes != null)
-        {
-            for (int y = 0; y < n; y++)
-            for (int x = 0; x < n; x++)
-            {
-                var tm = moveNumMeshes[x, y];
-                if (tm == null) continue;
-                int i = rules.Idx(x, y);
-                int stone = rules.Board[i];
-                int mv = rules.MoveAt[i];
-                bool hasMark = boardMarks != null && i < boardMarks.Length && boardMarks[i] != 0;
-                if (!showMoveNums || stone == GoRules.EMPTY || mv <= 0 || hasMark)
-                {
-                    tm.gameObject.SetActive(false);
-                    continue;
-                }
-                tm.gameObject.SetActive(true);
-                tm.text = mv.ToString();
-                tm.color = stone == GoRules.BLACK ? MoveNumOnBlack : MoveNumOnWhite;
-            }
-        }
-
-        for (int i = 0; i < n; i++)
-        {
-            bool cOn = showCoords;
-            studyColBot[i].enabled = cOn;
-            studyColTop[i].enabled = cOn;
-            studyRowLeft[i].enabled = cOn;
-            studyRowRight[i].enabled = cOn;
-        }
-
-        if (showTerritory)
+        if (on && showTerritory)
         {
             rules.EstimateSituation(out float bs, out float ws,
                 out int bt, out int wt, out int bm, out int wm, out int db, out int dw, out int[] owner);
@@ -2123,40 +1780,10 @@ public class GoGame : MonoBehaviour
                 $"实地 黑{bt} 白{wt}    厚势 黑{bm} 白{wm}" +
                 (db + dw > 0 ? $"    疑死 黑{db} 白{dw}" : "") +
                 $"\n{lead}";
-            PaintTerritoryBoxes(owner);
         }
         else
         {
             if (studyTerritoryText != null) studyTerritoryText.text = "";
-            PaintTerritoryBoxes(null);
-        }
-    }
-
-    void PaintTerritoryBoxes(int[] owner)
-    {
-        if (terrSr == null) return;
-        int n = boardSize;
-        bool on = owner != null && owner.Length == n * n;
-        Color blackBox = new Color(0.08f, 0.08f, 0.08f, 0.92f);
-        Color whiteBox = new Color(0.97f, 0.97f, 0.97f, 0.92f);
-        Color blackMoyo = new Color(0.12f, 0.12f, 0.12f, 0.42f);
-        Color whiteMoyo = new Color(1f, 1f, 1f, 0.42f);
-        for (int y = 0; y < n; y++)
-        for (int x = 0; x < n; x++)
-        {
-            var sr = terrSr[x, y];
-            if (sr == null) continue;
-            if (!on)
-            {
-                sr.enabled = false;
-                continue;
-            }
-            int o = owner[rules.Idx(x, y)];
-            if (o == GoRules.BLACK) { sr.enabled = true; sr.color = blackBox; }
-            else if (o == GoRules.WHITE) { sr.enabled = true; sr.color = whiteBox; }
-            else if (o == GoRules.BLACK + 10) { sr.enabled = true; sr.color = blackMoyo; }
-            else if (o == GoRules.WHITE + 10) { sr.enabled = true; sr.color = whiteMoyo; }
-            else sr.enabled = false;
         }
     }
 
@@ -3113,29 +2740,8 @@ public class GoGame : MonoBehaviour
         if (commentModuleRoot != null) commentModuleRoot.SetActive(rev);
         if (homeBtnLabel != null) homeBtnLabel.text = rev ? "返回棋谱" : "返回主界面";
 
-        int n = boardSize;
-        for (int y = 0; y < n; y++)
-        for (int x = 0; x < n; x++)
-        {
-            int i = rules.Idx(x, y);
-            int v = rules.Board[i];
-            var sr = stoneSr[x, y];
-            sr.enabled = v != GoRules.EMPTY;
-            if (v == GoRules.BLACK) sr.sprite = stoneBlack;
-            else if (v == GoRules.WHITE) sr.sprite = stoneWhite;
-            bool dead = rules.Dead.Contains(i);
-            sr.color = dead ? new Color(1f, 1f, 1f, 0.35f) : Color.white;
-            deadSr[x, y].enabled = dead;
-        }
-
-        if (rules.LastMove >= 0 && (reviewingKifu || rules.Phase != GoPhase.Over))
-        {
-            markerSr.enabled = true;
-            markerSr.transform.position = new Vector3(rules.LastMove % n, rules.LastMove / n, 0f);
-            markerSr.color = rules.Board[rules.LastMove] == GoRules.BLACK
-                ? new Color(0.91f, 0.72f, 0.38f) : new Color(0.35f, 0.22f, 0.06f);
-        }
-        else markerSr.enabled = false;
+        if (boardSkin != null)
+            boardSkin.Refresh(rules, showMoveNums, showCoords, showTerritory);
 
         if (reviewingKifu && inBranchMode)
         {
