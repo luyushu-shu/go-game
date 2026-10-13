@@ -124,7 +124,7 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
---- !u!1 &1300737119
+--- !u!1 &154900854
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -132,8 +132,8 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 7
   m_Component:
-  - component: {fileID: 1300737121}
-  - component: {fileID: 1300737120}
+  - component: {fileID: 154900856}
+  - component: {fileID: 154900855}
   m_Layer: 0
   m_HasEditorInfo: 1
   m_Name: QiyiRuntimeAssetManifest
@@ -142,21 +142,33 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1300737120
+--- !u!114 &154900855
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1300737119}
+  m_GameObject: {fileID: 154900854}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 1fce27d2f8bf4de4aa314c4af613ec34, type: 3}
-  m_Name:
-  m_EditorClassIdentifier:
+  m_Name: 
+  m_EditorClassIdentifier: 
   inkRoomBackground: {fileID: 21300000, guid: a38f469d527cede4e9bf56d3f1fb497f, type: 3}
   mountainSilhouette: {fileID: 21300000, guid: 4e386381adf2e144d9309d5ed07ceef1, type: 3}
   bambooShadow: {fileID: 21300000, guid: 1cb8be94cc507bc479f0373577e0e4fe, type: 3}
+  boardWood: {fileID: 21300000, guid: 6ded20604574e9e4094ee330ec6e2c11, type: 3}
+  blackStone: {fileID: 21300000, guid: 0f007092ecff7434881f2f7e942fb04f, type: 3}
+  whiteStone: {fileID: 21300000, guid: e8d6767147d8a604988972c4c3b1ca69, type: 3}
+  stoneShadow: {fileID: 21300000, guid: 6768338f262f56c499d76902ba4bfe3e, type: 3}
+  lastMove: {fileID: 21300000, guid: 98d4d9f1211689f4190601d72f6f91ba, type: 3}
+  aiBest: {fileID: 21300000, guid: 21db28eb7c247fb4b9da51530dc45d58, type: 3}
+  panelPaper: {fileID: 21300000, guid: 7772521b732aca94eacd0aaa4a7d73a9, type: 3}
+  panelInk: {fileID: 21300000, guid: 3f9811599d21b394a953cb3477ea780d, type: 3}
+  buttonIcon: {fileID: 21300000, guid: 76e803c9e1c134b4e9ab54734ece2386, type: 3}
+  boardMoveNumbers: {fileID: 21300000, guid: 8f2a4dbb73d94ba8b09b3c3dbe3b7331, type: 3}
+  boardCoordinates: {fileID: 21300000, guid: 0a4a83d1c8e844b7b7bd0a09f3b4a621, type: 3}
+  boardSituation: {fileID: 21300000, guid: 6f6a1baf1f0b4f288f07d65a0a772d54, type: 3}
   buttonClick: {fileID: 8300000, guid: bdece4baba74ffd4ebac8db43f778451, type: 3}
   buttonConfirm: {fileID: 8300000, guid: 45035fb91bd9050408ba16e3b6ceae3b, type: 3}
   stonePlace: {fileID: 8300000, guid: ba87c8ca587986140964457fd51da2b6, type: 3}
@@ -165,13 +177,13 @@ MonoBehaviour:
   gameEnd: {fileID: 8300000, guid: a3665d5287def58419a5d5e20f337266, type: 3}
   bgmStudy: {fileID: 8300000, guid: bfe6614ba8735364f9585fbfe8636647, type: 3}
   bgmReview: {fileID: 8300000, guid: 631cbc57b061b394889da66e7d089318, type: 3}
---- !u!4 &1300737121
+--- !u!4 &154900856
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1300737119}
+  m_GameObject: {fileID: 154900854}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
@@ -184,4 +196,4 @@ Transform:
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
-  - {fileID: 1300737121}
+  - {fileID: 154900856}

@@ -60,11 +60,11 @@ public sealed class GoBoardSkin : MonoBehaviour
         BoardRoot.SetParent(parent, false);
 
         int cellPx = size >= 19 ? 72 : size >= 13 ? 100 : 140;
-        boardSprite = LoadOrCreate("Board/board_wood_1024", MakeBoardSprite(size, cellPx));
-        BlackStoneSprite = LoadOrCreate("Board/stone_black_256", MakeStoneSprite(true));
-        WhiteStoneSprite = LoadOrCreate("Board/stone_white_256", MakeStoneSprite(false));
-        DeadMarkerSprite = LoadOrCreate("Board/stone_shadow_256", MakeDeadMarkerSprite());
-        LastMoveSprite = LoadOrCreate("Board/marker_last_move_128", MakeRingSprite());
+        boardSprite = LoadOrCreate(GoRuntimeAssetManifest.BoardWoodKey, MakeBoardSprite(size, cellPx));
+        BlackStoneSprite = LoadOrCreate(GoRuntimeAssetManifest.BlackStoneKey, MakeStoneSprite(true));
+        WhiteStoneSprite = LoadOrCreate(GoRuntimeAssetManifest.WhiteStoneKey, MakeStoneSprite(false));
+        DeadMarkerSprite = LoadOrCreate(GoRuntimeAssetManifest.StoneShadowKey, MakeDeadMarkerSprite());
+        LastMoveSprite = LoadOrCreate(GoRuntimeAssetManifest.LastMoveKey, MakeRingSprite());
         TerritorySprite = MakeBoxSprite();
 
         var board = new GameObject("Board");
@@ -173,8 +173,7 @@ public sealed class GoBoardSkin : MonoBehaviour
             LastMoveRenderer.enabled = true;
             LastMoveRenderer.transform.localPosition = (Vector3)GridToLocal(
                 rules.LastMove % boardSize, rules.LastMove / boardSize, boardSize, cellSize);
-            LastMoveRenderer.color = rules.Board[rules.LastMove] == GoRules.BLACK
-                ? new Color(0.91f, 0.72f, 0.38f) : new Color(0.35f, 0.22f, 0.06f);
+            LastMoveRenderer.color = new Color(0.843f, 0.290f, 0.227f, 1f);
         }
         else if (LastMoveRenderer != null) LastMoveRenderer.enabled = false;
 
@@ -211,6 +210,7 @@ public sealed class GoBoardSkin : MonoBehaviour
             else DestroyImmediate(BoardRoot.gameObject);
         }
         BoardRoot = null;
+        OnPointClick = null;
         stoneRenderers = null;
         deadRenderers = null;
         territoryRenderers = null;
@@ -312,13 +312,13 @@ public sealed class GoBoardSkin : MonoBehaviour
         layout.childControlHeight = true;
         layout.childForceExpandWidth = true;
         layout.childForceExpandHeight = false;
-        toolbarMoveText = MakeToolbarButton("MoveNumbers", "手数", () => ToggleToolbar(0));
-        toolbarCoordinatesText = MakeToolbarButton("Coordinates", "坐标", () => ToggleToolbar(1));
-        toolbarTerritoryText = MakeToolbarButton("Situation", "形势", () => ToggleToolbar(2));
+        toolbarMoveText = MakeToolbarButton("MoveNumbers", "手数", GoIconCatalog.BoardMoveNumbers, () => ToggleToolbar(0));
+        toolbarCoordinatesText = MakeToolbarButton("Coordinates", "坐标", GoIconCatalog.BoardCoordinates, () => ToggleToolbar(1));
+        toolbarTerritoryText = MakeToolbarButton("Situation", "形势", GoIconCatalog.BoardSituation, () => ToggleToolbar(2));
         toolbarRoot.SetActive(false);
     }
 
-    Text MakeToolbarButton(string objectName, string label, UnityEngine.Events.UnityAction action)
+    Text MakeToolbarButton(string objectName, string label, string iconKey, UnityEngine.Events.UnityAction action)
     {
         var go = new GameObject(objectName);
         go.transform.SetParent(toolbarRoot.transform, false);
@@ -326,14 +326,14 @@ public sealed class GoBoardSkin : MonoBehaviour
         layout.preferredHeight = 48f;
         layout.minHeight = 48f;
         var image = go.AddComponent<Image>();
-        image.sprite = GoIconCatalog.Load(GoIconCatalog.BoardTool);
+        image.sprite = GoIconCatalog.Load(iconKey);
         image.type = Image.Type.Simple;
         image.color = new Color(0.13f, 0.10f, 0.08f, 0.94f);
         var button = go.AddComponent<Button>();
         button.targetGraphic = image;
         button.onClick.AddListener(action);
         var colors = button.colors;
-        colors.normalColor = Color.white;
+        colors.normalColor = image.color;
         colors.highlightedColor = new Color(1f, 0.86f, 0.56f);
         colors.pressedColor = new Color(0.76f, 0.57f, 0.25f);
         button.colors = colors;
@@ -398,7 +398,9 @@ public sealed class GoBoardSkin : MonoBehaviour
 
     Sprite LoadOrCreate(string resourceKey, Sprite fallback)
     {
-        var sprite = Resources.Load<Sprite>(resourceKey);
+        var sprite = GoRuntimeAssetManifest.Instance != null
+            ? GoRuntimeAssetManifest.Instance.GetSprite(resourceKey) : null;
+        if (sprite == null) sprite = Resources.Load<Sprite>(resourceKey);
         if (sprite == null) sprite = Resources.Load<Sprite>("Art/" + resourceKey);
         if (sprite != null)
         {

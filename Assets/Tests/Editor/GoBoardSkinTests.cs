@@ -57,4 +57,33 @@ public class GoBoardSkinTests
         Assert.AreEqual(3, clickedY);
         Object.DestroyImmediate(root);
     }
+
+    [Test]
+    public void ClearRemovesPointCallbackBeforeFutureNotifications()
+    {
+        var root = new GameObject("BoardSkinClearCallbackTest");
+        var skin = root.AddComponent<GoBoardSkin>();
+        int callbackCount = 0;
+        skin.Build(9, root.transform, null, (x, y) => callbackCount++);
+        skin.Clear();
+        skin.NotifyPointClick(2, 3);
+        Assert.AreEqual(0, callbackCount);
+        Object.DestroyImmediate(root);
+    }
+
+    [Test]
+    public void LastMoveAlwaysUsesCinnabarRingAndDeadStateRemainsVisible()
+    {
+        var root = new GameObject("BoardSkinStateVisualTest");
+        var skin = root.AddComponent<GoBoardSkin>();
+        var rules = new GoRules(9);
+        Assert.IsTrue(rules.Play(0, 0, out _));
+        rules.Dead.Add(rules.LastMove);
+        skin.Build(9, root.transform, null, null);
+        skin.Refresh(rules, false, true, false);
+        Assert.IsTrue(skin.LastMoveRenderer.enabled);
+        Assert.AreEqual(new Color(0.843f, 0.290f, 0.227f, 1f), skin.LastMoveRenderer.color);
+        Assert.IsNotNull(skin.DeadMarkerSprite);
+        Object.DestroyImmediate(root);
+    }
 }

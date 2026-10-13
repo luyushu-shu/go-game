@@ -10,14 +10,19 @@ public static class GoIconCatalog
     public const string Pass = "UI/Icons/icon_pass_64";
     public const string Score = "UI/Icons/icon_score_64";
     public const string Resign = "UI/Icons/icon_resign_64";
-    public const string BoardTool = "UI/Icons/icon_board_tool_64";
+    public const string BoardMoveNumbers = GoRuntimeAssetManifest.BoardMoveNumbersKey;
+    public const string BoardCoordinates = GoRuntimeAssetManifest.BoardCoordinatesKey;
+    public const string BoardSituation = GoRuntimeAssetManifest.BoardSituationKey;
 
     static readonly Dictionary<string, Sprite> fallbacks = new Dictionary<string, Sprite>();
 
     public static Sprite Load(string key)
     {
         if (string.IsNullOrEmpty(key)) return null;
-        var sprite = Resources.Load<Sprite>(key);
+        var sprite = GoRuntimeAssetManifest.Instance != null
+            ? GoRuntimeAssetManifest.Instance.GetSprite(key) : null;
+        if (sprite != null) return sprite;
+        sprite = Resources.Load<Sprite>(key);
         if (sprite != null) return sprite;
 
         // Accept an asset key without the Resources/ prefix as well.
