@@ -28,6 +28,7 @@ public class BranchStepData
     public bool isPass;
     public float winrate = -1f;
     public float scoreLead = 0f;
+    public bool hasAnalysis;
     public string comment = "";
 }
 
@@ -52,6 +53,12 @@ public class MoveBranchesCatalog
 // 棋盘木纹、网格、星位、棋子、标记全部程序化生成。
 public class GoGame : MonoBehaviour
 {
+    public static int ResolveKifuSaveHandicap(bool restoredSession, int restoredHandicap, bool studyMode, int configuredHandicap)
+    {
+        if (restoredSession) return Mathf.Max(0, restoredHandicap);
+        return studyMode ? 0 : Mathf.Max(0, configuredHandicap);
+    }
+
     GoRules rules;
     int boardSize = 19;
     bool vsAI = false;
@@ -59,6 +66,8 @@ public class GoGame : MonoBehaviour
     bool reviewingKifu = false;
     KifuRecord reviewRec;
     KifuRecord resumedKifuMetadata;
+    bool isResumedKifuSession;
+    int resumedKifuHandicap;
     int resumedReviewPly;
     string reviewLogCsv = "";
     int reviewPly, reviewTotal;
@@ -110,6 +119,7 @@ public class GoGame : MonoBehaviour
     GameObject btnRestoreReview;
 
     RectTransform barBlackRt, barWhiteRt;
+    GameObject winrateBarRoot;
     Text winrateBarText;
     Text candInfoText;
 
@@ -285,6 +295,7 @@ public class GoGame : MonoBehaviour
     {
         InvalidateAiTurn();
         StopPlayClock();
+        ClearResumedKifuSession();
         audioManager?.PlaySfx("button_confirm");
         audioManager?.PlayMusic("bgm_study");
         inStudyMode = true;
@@ -335,6 +346,7 @@ public class GoGame : MonoBehaviour
             Flash(GoKataGo.InstallHint());
             return;
         }
+        ClearResumedKifuSession();
         audioManager?.PlaySfx("button_confirm");
         audioManager?.PlayMusic("bgm_study");
         inStudyMode = false;
@@ -401,6 +413,14 @@ public class GoGame : MonoBehaviour
         if (whiteClockView != null) whiteClockView.Bind(null, GoRules.WHITE);
     }
 
+    void ClearResumedKifuSession()
+    {
+        resumedKifuMetadata = null;
+        isResumedKifuSession = false;
+        resumedKifuHandicap = 0;
+        resumedReviewPly = 0;
+    }
+
     void OnClockTimedOut(int loserColor)
     {
         if (rules == null || rules.Result != null) return;
@@ -461,6 +481,7 @@ public class GoGame : MonoBehaviour
         InvalidateAiTurn();
         StopPlayClock();
         HideScorePopup();
+        ClearResumedKifuSession();
         if (reviewingKifu)
         {
             if (isAnalyzingFullGame) { GoKataGo.CancelAnalysis(); isAnalyzingFullGame = false; }
@@ -494,6 +515,7 @@ public class GoGame : MonoBehaviour
     {
         InvalidateAiTurn();
         StopPlayClock();
+        ClearResumedKifuSession();
         if (audioManager != null) audioManager.SavePrefs();
         inMenu = true;
         reviewingKifu = false;
@@ -1530,8 +1552,8 @@ public class GoGame : MonoBehaviour
         inBranchMode = true;
         branchPlyStart = reviewPly;
         branchMoveCount = 0;
-        branchLastWinrate = curPosAnalysis != null ? curPosAnalysis.blackWinrate 
-            : (gameAnalysis != null && reviewPly < gameAnalysis.blackWinrates.Length ? gameAnalysis.blackWinrates[reviewPly] : 0.5f);
+        branchLastWinrate = TryGetReviewWinrate(reviewPly, out float initialWinrate)
+            ? initialWinrate : -1f;
 
         if (btnExitBranch != null) btnExitBranch.SetActive(true);
         if (btnBranchUndo != null) btnBranchUndo.SetActive(true);
@@ -1589,7 +1611,8 @@ public class GoGame : MonoBehaviour
         }
 
         curBranchStepIdx = br.steps.Count - 1;
-        branchLastWinrate = br.steps.Count > 0 ? br.steps[br.steps.Count - 1].winrate : -1f;
+        branchLastWinrate = br.steps.Count > 0 && br.steps[br.steps.Count - 1].hasAnalysis
+            ? br.steps[br.steps.Count - 1].winrate : -1f;
 
         if (btnExitBranch != null) btnExitBranch.SetActive(true);
         if (btnBranchUndo != null) btnBranchUndo.SetActive(true);
@@ -2075,7 +2098,7 @@ public class GoGame : MonoBehaviour
                 ? resumedKifuMetadata.mode : (inStudyMode ? "打谱" : "人机对弈"),
             moveCount = rules != null ? rules.LoggedMoveCount : 0,
             komi = rules != null ? rules.Komi : komi,
-            handicap = inStudyMode ? 0 : handicap,
+            handicap = ResolveKifuSaveHandicap(isResumedKifuSession, resumedKifuHandicap, inStudyMode, handicap),
             moveLogCsv = rules != null ? rules.ExportMoveLogCsv() : "",
             stateJson = rules != null ? JsonUtility.ToJson(rules.ExportState()) : ""
         };
@@ -2083,8 +2106,7 @@ public class GoGame : MonoBehaviour
         {
             kifuForm.SetActive(false);
             if (scorePopup != null) scorePopup.SetActive(false);
-            resumedKifuMetadata = null;
-            resumedReviewPly = 0;
+            ClearResumedKifuSession();
             Flash("棋谱已保存");
         }
         else
@@ -3035,6 +3057,7 @@ public class GoGame : MonoBehaviour
     void OpenKifuReview(KifuRecord rec)
     {
         if (rec == null) return;
+        ClearResumedKifuSession();
         InvalidateAiTurn();
         StopPlayClock();
         audioManager?.PlayMusic("bgm_review");
@@ -3114,8 +3137,8 @@ public class GoGame : MonoBehaviour
     {
         if (!reviewingKifu || rules == null) return;
         GoStateData state = rules.ExportState();
-        resumedReviewPly = reviewPly;
-        resumedKifuMetadata = CloneKifuRecord(reviewRec);
+        KifuRecord restoredMetadata = CloneKifuRecord(reviewRec);
+        int restoredHandicap = restoredMetadata != null ? restoredMetadata.handicap : 0;
 
         if (isAnalyzingFullGame) GoKataGo.CancelAnalysis();
         isAnalyzingFullGame = false;
@@ -3137,6 +3160,10 @@ public class GoGame : MonoBehaviour
         }
         rules.ResumeRecording();
         rules.EnsureMoveAtForDisplay();
+        resumedReviewPly = reviewPly;
+        resumedKifuMetadata = restoredMetadata;
+        resumedKifuHandicap = restoredHandicap;
+        isResumedKifuSession = resumedKifuMetadata != null;
         inMenu = false;
         menuCanvas.SetActive(false);
         if (uiNavigator != null) uiNavigator.Show(GoUiPage.Playing);
@@ -3152,6 +3179,13 @@ public class GoGame : MonoBehaviour
     void ReviewSeek(int ply)
     {
         if (!reviewingKifu || rules == null) return;
+        if (curAnalysisCo != null)
+        {
+            StopCoroutine(curAnalysisCo);
+            curAnalysisCo = null;
+        }
+        curPosAnalysis = null;
+        HideCandidateBadges();
         if (inBranchMode)
         {
             inBranchMode = false;
@@ -3189,10 +3223,8 @@ public class GoGame : MonoBehaviour
 
         DrawWinrateChart(reviewPly);
         UpdateReviewInfoText(reviewPly);
-
-        if (gameAnalysis != null && gameAnalysis.blackWinrates != null && reviewPly < gameAnalysis.blackWinrates.Length)
+        if (TryGetReviewWinrate(reviewPly, out float wr) && HasGameAnalysisAt(reviewPly))
         {
-            float wr = gameAnalysis.blackWinrates[reviewPly];
             float lead = gameAnalysis.blackScoreLeads[reviewPly];
             float prevWr = reviewPly > 0 ? gameAnalysis.blackWinrates[reviewPly - 1] : wr;
             UpdateWinrateBar(wr, lead, wr - prevWr);
@@ -3200,12 +3232,74 @@ public class GoGame : MonoBehaviour
         }
         else
         {
-            UpdateWinrateBar(0.5f, 0f, 0f);
+            ClearWinrateBar();
             branchLastWinrate = -1f;
         }
 
+        RefreshReviewAnalysisDisplay();
+
         if (aiReviewEnabled) RequestPositionAnalysis();
-        else HideCandidateBadges();
+        else RefreshReviewAnalysisDisplay();
+    }
+
+    bool HasGameAnalysisSeries()
+    {
+        return gameAnalysis != null
+            && gameAnalysis.blackWinrates != null
+            && gameAnalysis.blackWinrates.Length > 0;
+    }
+
+    bool HasGameAnalysisAt(int ply)
+    {
+        return HasGameAnalysisSeries()
+            && gameAnalysis.blackScoreLeads != null
+            && ply >= 0
+            && ply < gameAnalysis.blackWinrates.Length
+            && ply < gameAnalysis.blackScoreLeads.Length;
+    }
+
+    bool TryGetReviewWinrate(int ply, out float winrate)
+    {
+        if (curPosAnalysis != null && curPosAnalysis.candidates != null && curPosAnalysis.candidates.Count > 0)
+        {
+            winrate = curPosAnalysis.blackWinrate;
+            return true;
+        }
+        if (HasGameAnalysisAt(ply))
+        {
+            winrate = gameAnalysis.blackWinrates[ply];
+            return true;
+        }
+        winrate = -1f;
+        return false;
+    }
+
+    void RefreshReviewAnalysisDisplay()
+    {
+        if (!reviewingKifu) return;
+
+        bool hasPositionAnalysis = curPosAnalysis != null
+            && curPosAnalysis.candidates != null
+            && curPosAnalysis.candidates.Count > 0;
+        bool hasGameAnalysis = HasGameAnalysisAt(reviewPly);
+        if (reviewPositionInfoText != null)
+        {
+            string who = rules != null && rules.Turn == GoRules.BLACK ? "黑方" : "白方";
+            reviewPositionInfoText.text = $"局面信息：第 {reviewPly} 手 · {who}行棋\n分析：{(hasPositionAnalysis || hasGameAnalysis ? "已加载" : "暂无分析")}";
+        }
+
+        if (hasPositionAnalysis)
+            UpdateWinrateBar(curPosAnalysis.blackWinrate, curPosAnalysis.blackScoreLead);
+        else if (hasGameAnalysis)
+            UpdateWinrateBar(gameAnalysis.blackWinrates[reviewPly], gameAnalysis.blackScoreLeads[reviewPly]);
+        else
+            ClearWinrateBar();
+
+        KataCandidate candidate = hasPositionAnalysis
+            && curPosAnalysis.candidates != null
+            && curPosAnalysis.candidates.Count > 0
+            ? curPosAnalysis.candidates[0] : null;
+        UpdateCandidateDetailText(candidate);
     }
 
     void RefreshReviewMoveLog()
@@ -3255,7 +3349,8 @@ public class GoGame : MonoBehaviour
                         var st = br.steps[s];
                         string who = st.color == GoRules.BLACK ? "黑" : "白";
                         string coord = st.isPass ? "停一手" : $"（{ColLabel(st.x)}，{RowLabel(st.y)}）";
-                        string wrStr = st.winrate >= 0 ? $" <color=#88C0D0>[{st.winrate * 100f:0.0}%]</color>" : "";
+                        string wrStr = st.hasAnalysis && st.winrate >= 0
+                            ? $" <color=#88C0D0>[{st.winrate * 100f:0.0}%]</color>" : "";
                         string commStr = !string.IsNullOrEmpty(st.comment) ? $" <color=#EAA83E>💬{st.comment}</color>" : "";
                         string stepMark = (isCurrent && s == curBranchStepIdx) ? " ▶ " : "   ";
                         sb.Append($"\n<color=#D4AF37>{stepMark}{st.step}. {who}{coord}{wrStr}{commStr}</color>");
@@ -4017,6 +4112,7 @@ public class GoGame : MonoBehaviour
         // 3. 双色胜率条容器
         var barGo = new GameObject("WinrateBarContainer");
         barGo.transform.SetParent(reviewAiRoot.transform, false);
+        winrateBarRoot = barGo;
         var barLe = barGo.AddComponent<LayoutElement>();
         barLe.preferredWidth = 236f;
         barLe.preferredHeight = 22f;
@@ -4062,6 +4158,7 @@ public class GoGame : MonoBehaviour
         tRt.anchorMax = Vector2.one;
         tRt.offsetMin = Vector2.zero;
         tRt.offsetMax = Vector2.zero;
+        winrateBarRoot.SetActive(false);
 
         // 4. 全局胜率走势折线图
         var chartGo = new GameObject("WinrateChart");
@@ -4198,23 +4295,32 @@ public class GoGame : MonoBehaviour
 
         for (int i = 0; i < px.Length; i++) px[i] = bg;
 
-        int y50 = h / 2;
-        int y25 = h / 4;
-        int y75 = h * 3 / 4;
-        for (int x = 0; x < w; x++)
+        if (HasGameAnalysisSeries())
         {
-            if (x % 4 != 0) px[y50 * w + x] = line50;
-            if (x % 8 == 0)
+            int y50 = h / 2;
+            int y25 = h / 4;
+            int y75 = h * 3 / 4;
+            for (int x = 0; x < w; x++)
             {
-                px[y25 * w + x] = grid25;
-                px[y75 * w + x] = grid25;
+                if (x % 4 != 0) px[y50 * w + x] = line50;
+                if (x % 8 == 0)
+                {
+                    px[y25 * w + x] = grid25;
+                    px[y75 * w + x] = grid25;
+                }
             }
         }
 
-        if (gameAnalysis != null && gameAnalysis.blackWinrates != null && reviewTotal > 0)
+        if (HasGameAnalysisSeries() && reviewTotal > 0)
         {
             float[] wrs = gameAnalysis.blackWinrates;
             int total = Mathf.Min(reviewTotal, wrs.Length - 1);
+            if (total <= 0)
+            {
+                winrateChartTex.SetPixels32(px);
+                winrateChartTex.Apply(false, false);
+                return;
+            }
             int prevX = 0;
             int prevY = Mathf.Clamp(Mathf.RoundToInt(wrs[0] * (h - 4)) + 2, 2, h - 3);
 
@@ -4236,6 +4342,7 @@ public class GoGame : MonoBehaviour
             {
                 for (int ply = 1; ply <= total; ply++)
                 {
+                    if (ply >= gameAnalysis.blunders.Length) continue;
                     int b = gameAnalysis.blunders[ply];
                     if (b > 0)
                     {
@@ -4254,12 +4361,6 @@ public class GoGame : MonoBehaviour
                 if (cx < w - 1) px[y * w + cx + 1] = new Color32(0xFF, 0xFF, 0xFF, 0x40);
             }
         }
-        else if (reviewTotal > 0)
-        {
-            int cx = Mathf.Clamp(Mathf.RoundToInt((curPly / (float)reviewTotal) * (w - 1)), 0, w - 1);
-            for (int y = 0; y < h; y++) px[y * w + cx] = curBar;
-        }
-
         winrateChartTex.SetPixels32(px);
         winrateChartTex.Apply(false, false);
     }
@@ -4300,7 +4401,7 @@ public class GoGame : MonoBehaviour
         if (inBranchMode)
         {
             string who = rules.Turn == GoRules.BLACK ? "黑方" : "白方";
-            if (curPosAnalysis != null)
+            if (curPosAnalysis != null && curPosAnalysis.candidates != null && curPosAnalysis.candidates.Count > 0)
             {
                 float wr = curPosAnalysis.blackWinrate;
                 float lead = curPosAnalysis.blackScoreLead;
@@ -4313,7 +4414,7 @@ public class GoGame : MonoBehaviour
             }
             return;
         }
-        if (gameAnalysis != null && gameAnalysis.blackWinrates != null && ply >= 0 && ply < gameAnalysis.blackWinrates.Length)
+        if (HasGameAnalysisAt(ply))
         {
             float wr = gameAnalysis.blackWinrates[ply];
             float lead = gameAnalysis.blackScoreLeads[ply];
@@ -4322,7 +4423,7 @@ public class GoGame : MonoBehaviour
             string leadStr = lead > 0.05f ? $"黑+{lead:0.0}目" : lead < -0.05f ? $"白+{(-lead):0.0}目" : "均势";
             winrateInfoText.text = $"第 {ply} 手 · 黑胜率 {(wr * 100f):0.0}% ({leadStr}){tag}";
         }
-        else if (curPosAnalysis != null)
+        else if (curPosAnalysis != null && curPosAnalysis.candidates != null && curPosAnalysis.candidates.Count > 0)
         {
             float wr = curPosAnalysis.blackWinrate;
             float lead = curPosAnalysis.blackScoreLead;
@@ -4331,7 +4432,7 @@ public class GoGame : MonoBehaviour
         }
         else
         {
-            winrateInfoText.text = isAnalyzingFullGame ? "全局分析中…" : "胜率走势（点击「全局分析」）";
+            winrateInfoText.text = "暂无分析";
         }
     }
 
@@ -4355,6 +4456,8 @@ public class GoGame : MonoBehaviour
         {
             HideCandidateBadges();
             if (curAnalysisCo != null) { StopCoroutine(curAnalysisCo); curAnalysisCo = null; }
+            curPosAnalysis = null;
+            RefreshReviewAnalysisDisplay();
         }
     }
 
@@ -4419,6 +4522,7 @@ public class GoGame : MonoBehaviour
                     }
                     DrawWinrateChart(reviewPly);
                     UpdateReviewInfoText(reviewPly);
+                    RefreshReviewAnalysisDisplay();
                     Flash("全局胜率分析已完成！");
                 }
             }
@@ -4446,7 +4550,7 @@ public class GoGame : MonoBehaviour
             (pos) =>
             {
                 curPosAnalysis = pos;
-                if (pos != null)
+                if (pos != null && pos.candidates != null && pos.candidates.Count > 0)
                 {
                     float delta = 0f;
                     if (branchLastWinrate >= 0f)
@@ -4463,6 +4567,7 @@ public class GoGame : MonoBehaviour
                         {
                             br.steps[curBranchStepIdx].winrate = pos.blackWinrate;
                             br.steps[curBranchStepIdx].scoreLead = pos.blackScoreLead;
+                            br.steps[curBranchStepIdx].hasAnalysis = true;
                             SaveReviewCommentsAndBranches();
                             RefreshReviewMoveLog();
                         }
@@ -4470,9 +4575,16 @@ public class GoGame : MonoBehaviour
 
                     ShowCandidateBadges(pos);
                     UpdateReviewInfoText(reviewPly);
+                    RefreshReviewAnalysisDisplay();
+                }
+                else
+                {
+                    RefreshReviewAnalysisDisplay();
                 }
             }
         );
+        if (curPosAnalysis == null)
+            RefreshReviewAnalysisDisplay();
         curAnalysisCo = null;
     }
 
@@ -4604,8 +4716,8 @@ public class GoGame : MonoBehaviour
                 };
                 reviewBranches.Add(br);
                 curBranchIdx = reviewBranches.Count - 1;
-                branchLastWinrate = curPosAnalysis != null ? curPosAnalysis.blackWinrate 
-                    : (gameAnalysis != null && reviewPly < gameAnalysis.blackWinrates.Length ? gameAnalysis.blackWinrates[reviewPly] : 0.5f);
+            branchLastWinrate = TryGetReviewWinrate(reviewPly, out float initialWinrate)
+                    ? initialWinrate : -1f;
             }
             rules.Pass();
             branchMoveCount++;
@@ -4616,7 +4728,8 @@ public class GoGame : MonoBehaviour
                 y = -1,
                 color = GoRules.Opp(rules.Turn),
                 isPass = true,
-                winrate = branchLastWinrate
+                winrate = branchLastWinrate,
+                hasAnalysis = branchLastWinrate >= 0f
             };
             reviewBranches[curBranchIdx].steps.Add(step);
             curBranchStepIdx = reviewBranches[curBranchIdx].steps.Count - 1;
@@ -4655,8 +4768,8 @@ public class GoGame : MonoBehaviour
             };
             reviewBranches.Add(br);
             curBranchIdx = reviewBranches.Count - 1;
-            branchLastWinrate = curPosAnalysis != null ? curPosAnalysis.blackWinrate 
-                : (gameAnalysis != null && reviewPly < gameAnalysis.blackWinrates.Length ? gameAnalysis.blackWinrates[reviewPly] : 0.5f);
+            branchLastWinrate = TryGetReviewWinrate(reviewPly, out float initialWinrate)
+                ? initialWinrate : -1f;
         }
 
         if (rules.Play(x, y, out string msg))
@@ -4670,7 +4783,8 @@ public class GoGame : MonoBehaviour
                 y = y,
                 color = movedColor,
                 isPass = false,
-                winrate = branchLastWinrate
+                winrate = branchLastWinrate,
+                hasAnalysis = branchLastWinrate >= 0f
             };
             reviewBranches[curBranchIdx].steps.Add(step);
             curBranchStepIdx = reviewBranches[curBranchIdx].steps.Count - 1;
@@ -4785,6 +4899,7 @@ public class GoGame : MonoBehaviour
     void UpdateWinrateBar(float blackWr, float blackScoreLead, float deltaWr = 0f)
     {
         if (barBlackRt == null || barWhiteRt == null || winrateBarText == null) return;
+        if (winrateBarRoot != null) winrateBarRoot.SetActive(true);
         blackWr = Mathf.Clamp(blackWr, 0.02f, 0.98f);
         barBlackRt.anchorMax = new Vector2(blackWr, 1f);
         barWhiteRt.anchorMin = new Vector2(blackWr, 0f);
@@ -4807,15 +4922,19 @@ public class GoGame : MonoBehaviour
         winrateBarText.text = $"黑 {bPct:0.0}% | 白 {wPct:0.0}% ({leadStr}){deltaStr}";
     }
 
+    void ClearWinrateBar()
+    {
+        if (winrateBarRoot != null) winrateBarRoot.SetActive(false);
+        if (winrateBarText != null) winrateBarText.text = "暂无分析";
+    }
+
     void UpdateCandidateDetailText(KataCandidate c)
     {
         if (candInfoText == null) return;
         if (c == null)
         {
-            if (inBranchMode)
-                candInfoText.text = $"<color=#EAA83E>【试下第 {branchMoveCount} 步】</color>点击候选徽章或[推演一步]深入";
-            else
-                candInfoText.text = aiReviewEnabled ? "点击棋盘任意点可试下推演变化" : "点击「AI推演: 关」开启选点分析";
+            candInfoText.text = "暂无分析";
+            if (pvInfoText != null) pvInfoText.text = "PV：暂无分析";
             return;
         }
 
@@ -4826,6 +4945,8 @@ public class GoGame : MonoBehaviour
         string sideName = rules.Turn == GoRules.BLACK ? "黑" : "白";
 
         candInfoText.text = $"<b>候选{letter}（{c.coord}）</b> {sideName}胜率:<b>{wrPct}%</b> (领先:<b>{leadStr}目</b>)\n<color=#D4AF37>推荐序列: {pvStr}</color>";
+        if (pvInfoText != null)
+            pvInfoText.text = c.pv != null && c.pv.Count > 0 ? $"PV：{pvStr}" : "PV：暂无分析";
     }
 
     static string FormatPvShort(List<string> pv, int maxSteps)

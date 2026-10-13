@@ -51,4 +51,17 @@ public class GoKifuSgfTests
         StringAssert.Contains("C[备注\\]\\\\内容]", first);
         StringAssert.Contains("RE[黑方中盘胜\\]\\\\]", first);
     }
+
+    [Test]
+    public void RestoredHandicapHasSavePriority()
+    {
+        Assert.AreEqual(4, GoGame.ResolveKifuSaveHandicap(true, 4, false, 0));
+    }
+
+    [Test]
+    public void NewStudySaveDoesNotInheritRestoredHandicap()
+    {
+        Assert.AreEqual(0, GoGame.ResolveKifuSaveHandicap(false, 4, true, 9));
+        Assert.AreEqual(3, GoGame.ResolveKifuSaveHandicap(false, 4, false, 3));
+    }
 }
