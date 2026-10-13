@@ -188,6 +188,12 @@ public class GoGame : MonoBehaviour
     List<Button> optSize, optColor;
     Text komiValText, handiValText;
 
+    GoUiTheme uiTheme;
+    GoUiFactory uiFactory;
+    GoUiNavigator uiNavigator;
+    GameObject uiAppRoot, sceneBackgroundLayer, mainCanvasLayer, modalCanvasLayer, transitionLayer;
+    GameObject gameUiPanel;
+
     static readonly Color Ink = new Color(0.91f, 0.86f, 0.77f);
     static readonly Color Dim = new Color(0.61f, 0.55f, 0.43f);
     static readonly Color Accent = new Color(0.88f, 0.66f, 0.25f);
@@ -233,6 +239,7 @@ public class GoGame : MonoBehaviour
 
         rules = new GoRules(boardSize);
         aiController = gameObject.AddComponent<GoAiController>();
+        CreateUiShell();
         BuildBoard();
         BuildUI();
         BuildMenu();
@@ -315,6 +322,8 @@ public class GoGame : MonoBehaviour
         inMenu = false;
         reviewingKifu = false;
         menuCanvas.SetActive(false);
+        if (uiNavigator != null)
+            uiNavigator.Show(vsAI ? GoUiPage.Playing : GoUiPage.Study);
         gameStartedAt = System.DateTime.Now;
         lastResultLine = "";
         kifuDraftReady = false;
@@ -376,6 +385,7 @@ public class GoGame : MonoBehaviour
         inMenu = true;
         reviewingKifu = false;
         menuCanvas.SetActive(true);
+        if (uiNavigator != null) uiNavigator.Show(GoUiPage.MainMenu);
         mainPanel.SetActive(true);
         aiSetupPanel.SetActive(false);
         if (historyPanel != null) historyPanel.SetActive(false);
@@ -387,6 +397,7 @@ public class GoGame : MonoBehaviour
 
     void ShowAiSetup()
     {
+        if (uiNavigator != null) uiNavigator.Show(GoUiPage.AiSetup);
         mainPanel.SetActive(false);
         if (historyPanel != null) historyPanel.SetActive(false);
         aiSetupPanel.SetActive(true);
@@ -397,6 +408,7 @@ public class GoGame : MonoBehaviour
     {
         inMenu = true;
         menuCanvas.SetActive(true);
+        if (uiNavigator != null) uiNavigator.Show(GoUiPage.History);
         mainPanel.SetActive(false);
         aiSetupPanel.SetActive(false);
         historyPanel.SetActive(true);
@@ -1101,16 +1113,56 @@ public class GoGame : MonoBehaviour
 
     /* ---------------- 对局面板 ---------------- */
 
-    void BuildUI()
+    void CreateUiShell()
     {
-        var cgo = new GameObject("UI");
-        var canvas = cgo.AddComponent<Canvas>();
+        uiAppRoot = new GameObject("GoAppRoot");
+        uiAppRoot.transform.SetParent(transform, false);
+
+        uiTheme = GoUiTheme.CreateRuntimeDefault(font);
+        uiFactory = uiAppRoot.AddComponent<GoUiFactory>();
+        uiFactory.Theme = uiTheme;
+        uiNavigator = uiAppRoot.AddComponent<GoUiNavigator>();
+        uiNavigator.ReduceMotion = PlayerPrefs.GetInt("Qiyi.ReduceMotion", 0) != 0;
+
+        sceneBackgroundLayer = CreateCanvasLayer("SceneBackground", -10, false);
+        var background = new GameObject("InkBackground");
+        background.transform.SetParent(sceneBackgroundLayer.transform, false);
+        var backgroundImage = background.AddComponent<Image>();
+        backgroundImage.color = uiTheme.Ink900;
+        backgroundImage.raycastTarget = false;
+        var backgroundRect = background.GetComponent<RectTransform>();
+        backgroundRect.anchorMin = Vector2.zero;
+        backgroundRect.anchorMax = Vector2.one;
+        backgroundRect.offsetMin = backgroundRect.offsetMax = Vector2.zero;
+
+        mainCanvasLayer = CreateCanvasLayer("MainCanvas", 0, true);
+        modalCanvasLayer = CreateCanvasLayer("ModalCanvas", 100, true);
+        transitionLayer = CreateCanvasLayer("TransitionLayer", 200, false);
+        var transitionGroup = transitionLayer.AddComponent<CanvasGroup>();
+        transitionGroup.alpha = 1f;
+        transitionGroup.interactable = false;
+        transitionGroup.blocksRaycasts = false;
+    }
+
+    GameObject CreateCanvasLayer(string objectName, int sortingOrder, bool raycast)
+    {
+        var layer = new GameObject(objectName);
+        layer.transform.SetParent(uiAppRoot.transform, false);
+        var canvas = layer.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        var scaler = cgo.AddComponent<CanvasScaler>();
+        canvas.sortingOrder = sortingOrder;
+        var scaler = layer.AddComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1440f, 900f);
         scaler.matchWidthOrHeight = 0.5f;
-        cgo.AddComponent<GraphicRaycaster>();
+        if (raycast) layer.AddComponent<GraphicRaycaster>();
+        return layer;
+    }
+
+    void BuildUI()
+    {
+        var cgo = mainCanvasLayer;
+        var canvas = cgo.GetComponent<Canvas>();
 
         if (FindObjectOfType<EventSystem>() == null)
         {
@@ -1120,6 +1172,7 @@ public class GoGame : MonoBehaviour
         }
 
         var pgo = new GameObject("Panel");
+        gameUiPanel = pgo;
         pgo.transform.SetParent(canvas.transform, false);
         var pimg = pgo.AddComponent<Image>();
         pimg.color = new Color(0.14f, 0.11f, 0.08f, 0.96f);
@@ -2047,6 +2100,7 @@ public class GoGame : MonoBehaviour
     void BuildMenu()
     {
         menuCanvas = new GameObject("MenuCanvas");
+        menuCanvas.transform.SetParent(mainCanvasLayer.transform, false);
         var canvas = menuCanvas.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
         canvas.sortingOrder = 20;
@@ -2172,6 +2226,18 @@ public class GoGame : MonoBehaviour
         });
         historyPanel.SetActive(false);
         BuildHistoryDetail();
+        RegisterUiPages();
+    }
+
+    void RegisterUiPages()
+    {
+        if (uiNavigator == null) return;
+        uiNavigator.Register(GoUiPage.MainMenu, mainPanel);
+        uiNavigator.Register(GoUiPage.AiSetup, aiSetupPanel);
+        uiNavigator.Register(GoUiPage.History, historyPanel);
+        uiNavigator.Register(GoUiPage.Playing, gameUiPanel);
+        uiNavigator.Register(GoUiPage.Study, gameUiPanel);
+        uiNavigator.Register(GoUiPage.Review, gameUiPanel);
     }
 
     void BuildHistoryDetail()
@@ -2306,6 +2372,7 @@ public class GoGame : MonoBehaviour
         if (historyDetail != null) historyDetail.SetActive(false);
         if (historyPanel != null) historyPanel.SetActive(false);
         menuCanvas.SetActive(false);
+        if (uiNavigator != null) uiNavigator.Show(GoUiPage.Review);
         HideScorePopup();
         BuildBoard();
         ReviewSeek(reviewPly);
@@ -2546,6 +2613,9 @@ public class GoGame : MonoBehaviour
 
     Text MakeText(Transform parent, string content, int fontSize, Color color, TextAnchor anchor)
     {
+        if (uiFactory != null)
+            return uiFactory.MakeText(parent, "Label", content, fontSize, color, anchor);
+
         var go = new GameObject("Label");
         go.transform.SetParent(parent, false);
         var t = go.AddComponent<Text>();
@@ -2561,6 +2631,9 @@ public class GoGame : MonoBehaviour
 
     Transform MakeRow(Transform parent, float height)
     {
+        if (uiFactory != null)
+            return uiFactory.MakeRow(parent, "Row", height);
+
         var go = new GameObject("Row");
         go.transform.SetParent(parent, false);
         var le = go.AddComponent<LayoutElement>();
@@ -2577,6 +2650,19 @@ public class GoGame : MonoBehaviour
 
     Button MakeButton(Transform parent, string label, float height, UnityEngine.Events.UnityAction cb)
     {
+        if (uiFactory != null)
+        {
+            var style = height >= 48f ? GoButtonStyle.Primary : GoButtonStyle.Secondary;
+            var button = uiFactory.MakeButton(parent, "Btn_" + label, label, style, cb);
+            var layout = button.GetComponent<LayoutElement>();
+            if (layout != null)
+            {
+                layout.preferredHeight = height;
+                layout.minHeight = height;
+            }
+            return button;
+        }
+
         var go = new GameObject("Btn_" + label);
         go.transform.SetParent(parent, false);
         var le = go.AddComponent<LayoutElement>();
@@ -2643,6 +2729,19 @@ public class GoGame : MonoBehaviour
 
     InputField MakeInputField(Transform parent, string placeholder, float height, bool multi)
     {
+        if (uiFactory != null)
+        {
+            var compatInput = uiFactory.MakeInput(parent, "Input", placeholder, 15);
+            compatInput.lineType = multi ? InputField.LineType.MultiLineNewline : InputField.LineType.SingleLine;
+            var layout = compatInput.GetComponent<LayoutElement>();
+            if (layout != null)
+            {
+                layout.preferredHeight = height;
+                layout.minHeight = height;
+            }
+            return compatInput;
+        }
+
         var go = new GameObject("Input");
         go.transform.SetParent(parent, false);
         var le = go.AddComponent<LayoutElement>();
