@@ -15,8 +15,9 @@ public static class GoSaveTests
         TestKifuRecordAddAndQuery();
         TestKifuMigration();
         TestStudyProgressSaveAndLoad();
+        TestTerminalStudyProgressPreservesResult();
         TestStudySaveValidation();
-        Debug.Log("[GoSaveTests] All 5 persistence tests passed successfully!");
+        Debug.Log("[GoSaveTests] All 6 persistence tests passed successfully!");
     }
 
     public static void TestKifuRecordValidation()
@@ -100,5 +101,23 @@ public static class GoSaveTests
         };
         bool ok = GoSaveManager.ValidateStateData(badData, out string err);
         Assert(!ok && !string.IsNullOrEmpty(err), "Invalid state size should fail validation");
+    }
+
+    public static void TestTerminalStudyProgressPreservesResult()
+    {
+        var rules = new GoRules(9);
+        rules.Pass();
+        rules.Pass();
+        rules.ConfirmEnd();
+        string expected = rules.Result;
+
+        bool saveOk = GoSaveManager.SaveStudyTerminalProgress(rules, out string saveErr);
+        Assert(saveOk, "SaveStudyTerminalProgress should succeed: " + saveErr);
+        Assert(GoSaveManager.TryLoadStudySave(out GoStateData loaded, out string loadMsg),
+            "Terminal study save should load: " + loadMsg);
+        Assert(loaded.phase == (int)GoPhase.Over, "Terminal study save must preserve Over phase");
+        Assert(loaded.result == expected, "Terminal study save must preserve result");
+
+        GoSaveManager.ClearStudySave();
     }
 }

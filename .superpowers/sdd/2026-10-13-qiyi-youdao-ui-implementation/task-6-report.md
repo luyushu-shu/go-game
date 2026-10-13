@@ -30,3 +30,16 @@
 - Unity/Tuanjie 命令行日志包含许可证客户端不可用提示，但脚本程序集随后成功编译，且现有 TestRunner 通过。
 - managed EditMode XML/测试发现受当前环境限制；Play Mode 及 1920×1080、1600×900、1366×768 的实际布局验收未完成。
 - 报告与实现一起提交；最终 commit hash 以任务回复为准。
+
+## 审查修复（基于 cf13be5）
+
+- `GoClockController` 在读秒自动耗尽并进入下一段时递增 `ByoyomiSegment`；新增 `AutomaticByoyomiRolloverGetsANewSegmentWarning`，覆盖同一方不落子连续跨段时每段重新触发 10 秒警告。
+- `StartPlayClock` 改为使用 `rules.Turn`。因此无让子时黑方先计时；`SetupHandicap` 将 `Turn` 设为白方后，白方时钟立即活动。静态断言覆盖该调用及相关入口。
+- `GoGame` 增加 `gameEpoch` 与统一 `InvalidateAiTurn`。开始新局、返回主菜单、复盘切换、超时、认输、数目确认和再来一局都会取消/失效旧请求；AI 异步结果在应用前校验 epoch、规则实例、当前模式、`GoPhase.Play`、无结果且仍轮到原 AI 方，避免污染新局、菜单或旧规则。
+- `GoSaveManager` 保留普通 `SaveStudyProgress` 的可继续打谱归一化行为，新增 `SaveStudyTerminalProgress` 保留终局 `phase`、`passes`、`result` 与死子信息；`SaveTerminalDraft` 改走该明确路径。`GoSaveTests` 新增终局保存/读取回归。
+
+## 修复验证
+
+- 快速静态断言：7 项通过，覆盖读秒段号、`rules.Turn` 启动、AI epoch/终局门禁、终局保存入口和两个聚焦测试存在性；`git diff --check` 通过。
+- 已尝试在目标隔离工作树执行 Tuanjie batch compile 与 `TestRunner.RunAllTests`；托管编辑器在项目初始化阶段因工作树 ACL 判定 `Project folder or disk is read only`，未进入可靠的完整编译/TestRunner 结果。随后启动的可写临时验证副本按用户要求中止，未将其结果宣称为通过。
+- 标准 managed EditMode 未获得执行结果；Play Mode 未运行。两者仍受当前 headless/托管编辑器环境限制；本轮限制已记录，不影响修复源码与静态检查收敛。

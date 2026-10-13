@@ -51,6 +51,16 @@ public static class GoSaveManager
 
     public static bool SaveStudyProgress(GoRules rules, out string error)
     {
+        return SaveStudyState(rules, false, out error);
+    }
+
+    public static bool SaveStudyTerminalProgress(GoRules rules, out string error)
+    {
+        return SaveStudyState(rules, true, out error);
+    }
+
+    static bool SaveStudyState(GoRules rules, bool preserveTerminalState, out string error)
+    {
         error = null;
         if (rules == null)
         {
@@ -61,10 +71,13 @@ public static class GoSaveManager
         try
         {
             var data = rules.ExportState();
-            data.phase = (int)GoPhase.Play;
-            data.passes = 0;
-            data.result = null;
-            data.dead = new int[0];
+            if (!preserveTerminalState)
+            {
+                data.phase = (int)GoPhase.Play;
+                data.passes = 0;
+                data.result = null;
+                data.dead = new int[0];
+            }
             string json = JsonUtility.ToJson(data);
 
             // 双重持久化：PlayerPrefs + 磁盘文件

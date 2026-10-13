@@ -165,4 +165,35 @@ public class GoClockControllerTests
             Object.DestroyImmediate(go);
         }
     }
+
+    [Test]
+    public void AutomaticByoyomiRolloverGetsANewSegmentWarning()
+    {
+        var control = GoTimeControl.FromPreset(GoTimePreset.Custom, GoByoyomiPreset.FiveByThirty);
+        control.MainTimeSeconds = 1;
+        var clock = new GoClockController();
+        clock.Start(control, GoRules.BLACK);
+
+        var go = new GameObject("ClockSegmentRolloverTest");
+        try
+        {
+            var view = go.AddComponent<GoClockView>();
+            view.Bind(clock, GoRules.BLACK);
+
+            clock.Tick(21.0); // main time + 20 seconds: first period reaches 10 seconds
+            Assert.AreEqual(1, clock.GetSnapshot(GoRules.BLACK).ByoyomiSegment);
+            Assert.AreEqual(1, view.WarningCount);
+
+            clock.Tick(10.0); // period expires without a move; the next period starts
+            Assert.AreEqual(2, clock.GetSnapshot(GoRules.BLACK).ByoyomiSegment);
+            clock.Tick(20.0); // second period reaches 10 seconds and must warn again
+
+            Assert.AreEqual(2, view.WarningCount);
+            Assert.AreEqual("读秒 4/5 · 00:10", view.DisplayText);
+        }
+        finally
+        {
+            Object.DestroyImmediate(go);
+        }
+    }
 }

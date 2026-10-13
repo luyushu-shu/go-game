@@ -173,6 +173,7 @@ public sealed class GoClockController
                 break;
             }
 
+            state.ByoyomiSegment++;
             state.ByoyomiSeconds = control.ByoyomiSeconds;
         }
     }

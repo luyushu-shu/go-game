@@ -67,6 +67,7 @@ public class GoGame : MonoBehaviour
     Text resignDialogResult, scoreDialogDetails, timeoutDialogResult;
     Text studySaveStatusText;
     bool aiBusy = false;
+    int gameEpoch;
     bool inMenu = true;
 
     // KataGo 复盘分析与变化推演状态
@@ -266,6 +267,7 @@ public class GoGame : MonoBehaviour
 
     void StartStudyGame()
     {
+        InvalidateAiTurn();
         StopPlayClock();
         audioManager?.PlaySfx("button_confirm");
         audioManager?.PlayMusic("bgm_study");
@@ -273,8 +275,6 @@ public class GoGame : MonoBehaviour
         vsAI = false;
         boardSize = StudyBoardSize;
         showMoveNums = true;
-        aiBusy = false;
-        aiController?.Cancel();
         StopAllCoroutines();
 
         if (TryLoadStudySave(out var data) && rules.ImportState(data))
@@ -296,6 +296,7 @@ public class GoGame : MonoBehaviour
 
     void StartAiGame()
     {
+        InvalidateAiTurn();
         StopPlayClock();
         SyncTimeControlFromInputs();
         if (!timeControl.TryValidate(out string timeError))
@@ -328,8 +329,6 @@ public class GoGame : MonoBehaviour
                    : colorChoice == 1 ? GoRules.WHITE
                    : (Random.value < 0.5f ? GoRules.BLACK : GoRules.WHITE);
 
-        aiBusy = false;
-        aiController?.Cancel();
         StopAllCoroutines();
         rules.Reset(boardSize);
         rules.Komi = komi;
@@ -370,7 +369,7 @@ public class GoGame : MonoBehaviour
         StopPlayClock();
         clockController = new GoClockController();
         clockController.TimedOut += OnClockTimedOut;
-        clockController.Start(timeControl, GoRules.BLACK);
+        clockController.Start(timeControl, rules.Turn);
         if (blackClockView != null) blackClockView.Bind(clockController, GoRules.BLACK);
         if (whiteClockView != null) whiteClockView.Bind(clockController, GoRules.WHITE);
         UpdateClockPauseState();
@@ -389,6 +388,7 @@ public class GoGame : MonoBehaviour
     void OnClockTimedOut(int loserColor)
     {
         if (rules == null || rules.Result != null) return;
+        InvalidateAiTurn();
         rules.FinishByTimeout(loserColor);
         StopPlayClock();
         SaveTerminalDraft();
@@ -433,8 +433,16 @@ public class GoGame : MonoBehaviour
         }
     }
 
+    void InvalidateAiTurn()
+    {
+        gameEpoch++;
+        aiBusy = false;
+        aiController?.Cancel();
+    }
+
     void ReturnToMainMenu()
     {
+        InvalidateAiTurn();
         StopPlayClock();
         HideScorePopup();
         if (reviewingKifu)
@@ -454,7 +462,6 @@ public class GoGame : MonoBehaviour
             reviewingKifu = false;
             inStudyMode = false;
             vsAI = false;
-            aiBusy = false;
             StopAllCoroutines();
             ShowHistoryPanel();
             return;
@@ -462,8 +469,6 @@ public class GoGame : MonoBehaviour
         if (inStudyMode) SaveStudyProgress();
         inStudyMode = false;
         vsAI = false;
-        aiBusy = false;
-        aiController?.Cancel();
         StopAllCoroutines();
         GoKataGo.Shutdown();
         ShowMainMenu();
@@ -471,6 +476,7 @@ public class GoGame : MonoBehaviour
 
     void ShowMainMenu()
     {
+        InvalidateAiTurn();
         StopPlayClock();
         if (audioManager != null) audioManager.SavePrefs();
         inMenu = true;
@@ -561,16 +567,25 @@ public class GoGame : MonoBehaviour
     IEnumerator AiTurn()
     {
         if (aiController == null) aiController = gameObject.AddComponent<GoAiController>();
+        if (inMenu || !vsAI || rules == null || rules.Result != null
+            || rules.Phase != GoPhase.Play || rules.Turn != aiColor) yield break;
+
+        int requestEpoch = gameEpoch;
+        GoRules requestRules = rules;
+        int requestAiColor = aiColor;
+        GoAiController requestController = aiController;
         aiBusy = true;
         Refresh();
         yield return null;
+        if (!IsCurrentAiTurn(requestEpoch, requestRules, requestAiColor, requestController))
+            yield break;
 
         GoMoveResult result = null;
         string notice = null;
 
-        yield return aiController.RequestAiMove(
-            rules,
-            aiColor,
+        yield return requestController.RequestAiMove(
+            requestRules,
+            requestAiColor,
             opponentChoice,
             boardSize,
             handicap,
@@ -580,6 +595,9 @@ public class GoGame : MonoBehaviour
                 result = res;
                 notice = fallback;
             });
+
+        if (!IsCurrentAiTurn(requestEpoch, requestRules, requestAiColor, requestController))
+            yield break;
 
         if (!string.IsNullOrEmpty(notice)) Flash(notice);
 
@@ -616,6 +634,15 @@ public class GoGame : MonoBehaviour
 
         aiBusy = false;
         Refresh();
+    }
+
+    bool IsCurrentAiTurn(int requestEpoch, GoRules requestRules, int requestAiColor,
+        GoAiController requestController)
+    {
+        return requestEpoch == gameEpoch && requestRules == rules
+            && requestController == aiController && !inMenu && vsAI && !reviewingKifu
+            && rules != null && rules.Phase == GoPhase.Play && rules.Result == null
+            && rules.Turn == requestAiColor;
     }
 
     void Undo()
@@ -1728,12 +1755,15 @@ public class GoGame : MonoBehaviour
     void ClearBoardKeepPlaying()
     {
         if (reviewingKifu) return;
+        InvalidateAiTurn();
         HideScorePopup();
         WipeBoardState();
         BuildBoard();
         if (vsAI) StartPlayClock();
         Refresh();
         Flash("棋盘已清空");
+        if (vsAI && rules.Result == null && rules.Phase == GoPhase.Play && rules.Turn == aiColor)
+            StartCoroutine(AiTurn());
     }
 
     void WipeBoardState()
@@ -1766,6 +1796,7 @@ public class GoGame : MonoBehaviour
     void ConfirmResignDialog()
     {
         if (rules == null || rules.Result != null) return;
+        InvalidateAiTurn();
         rules.ResignBy(rules.Turn);
         if (resignDialog != null) resignDialog.SetActive(false);
         StopPlayClock();
@@ -1805,6 +1836,7 @@ public class GoGame : MonoBehaviour
     void ConfirmScoreDialog()
     {
         if (rules == null || rules.Phase != GoPhase.Scoring) return;
+        InvalidateAiTurn();
         rules.ConfirmEnd();
         if (scoreDialog != null) scoreDialog.SetActive(false);
         StopPlayClock();
@@ -1854,7 +1886,16 @@ public class GoGame : MonoBehaviour
 
     void SaveTerminalDraft()
     {
-        if (inStudyMode) SaveStudyProgress();
+        if (!inStudyMode || reviewingKifu || rules == null) return;
+        if (!GoSaveManager.SaveStudyTerminalProgress(rules, out string err))
+        {
+            if (studySaveStatusText != null) studySaveStatusText.text = "自动保存：保存失败";
+            Debug.LogWarning("自动保存打谱终局失败: " + err);
+        }
+        else if (studySaveStatusText != null)
+        {
+            studySaveStatusText.text = "自动保存：已保存";
+        }
     }
 
     void ShowResultPopup(string title)
@@ -2708,6 +2749,7 @@ public class GoGame : MonoBehaviour
     void OpenKifuReview(KifuRecord rec)
     {
         if (rec == null) return;
+        InvalidateAiTurn();
         StopPlayClock();
         audioManager?.PlayMusic("bgm_review");
         reviewingKifu = true;
