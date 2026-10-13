@@ -82,6 +82,27 @@ public sealed class GoUiNavigator : MonoBehaviour
         return true;
     }
 
+    public bool ReplayCurrentPage()
+    {
+        if (!hasCurrentPage) return false;
+
+        PageEntry current;
+        if (!pages.TryGetValue(CurrentPage, out current) || current.Root == null)
+            return false;
+
+        current.Root.SetActive(true);
+        if (current.Group != null)
+            SetInteractive(current.Group, false);
+
+        int version = ++transitionVersion;
+        GoUiMotion.PlayPageTransition(null, current.Group, ReduceMotion, () =>
+        {
+            if (version != transitionVersion) return;
+            SetInteractive(current.Group, true);
+        });
+        return true;
+    }
+
     public void ShowModal(GameObject modal)
     {
         if (modal == null) return;

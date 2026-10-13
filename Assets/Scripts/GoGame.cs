@@ -181,12 +181,19 @@ public class GoGame : MonoBehaviour
     Coroutine msgCo;
 
     // 主界面
-    GameObject menuCanvas, mainPanel, aiSetupPanel, historyPanel, historyDetail;
+    GameObject menuCanvas, mainPanel, aiSetupPanel, historyPanel, historyDetail, settingsPanel;
     InputField historySearch;
     Transform historyListContent;
     Text historyDetailText;
     List<Button> optSize, optColor;
     Text komiValText, handiValText;
+
+    GoAudioManager audioManager;
+    Slider quickMasterVolumeSlider;
+    Button quickMuteButton;
+    Slider settingsMasterSlider, settingsMusicSlider, settingsSfxSlider, settingsWarningSlider;
+    Toggle settingsMuteToggle, settingsReduceMotionToggle;
+    static readonly string ReduceMotionKey = "Qiyi.ReduceMotion";
 
     GoUiTheme uiTheme;
     GoUiFactory uiFactory;
@@ -207,6 +214,7 @@ public class GoGame : MonoBehaviour
 
     void Awake()
     {
+        audioManager = gameObject.AddComponent<GoAudioManager>();
         font = Font.CreateDynamicFontFromOSFont(new[] { "Microsoft YaHei", "SimHei", "Arial" }, 16);
         if (font == null) font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         numberFont = Font.CreateDynamicFontFromOSFont(new[] { "Arial", "Segoe UI", "Calibri", "Microsoft YaHei" }, 48);
@@ -250,6 +258,8 @@ public class GoGame : MonoBehaviour
 
     void StartStudyGame()
     {
+        audioManager?.PlaySfx("button_confirm");
+        audioManager?.PlayMusic("bgm_study");
         inStudyMode = true;
         vsAI = false;
         boardSize = StudyBoardSize;
@@ -291,6 +301,8 @@ public class GoGame : MonoBehaviour
             Flash(GoKataGo.InstallHint());
             return;
         }
+        audioManager?.PlaySfx("button_confirm");
+        audioManager?.PlayMusic("bgm_study");
         inStudyMode = false;
         vsAI = true;
         showMoveNums = true;
@@ -382,6 +394,7 @@ public class GoGame : MonoBehaviour
 
     void ShowMainMenu()
     {
+        if (audioManager != null) audioManager.SavePrefs();
         inMenu = true;
         reviewingKifu = false;
         menuCanvas.SetActive(true);
@@ -390,6 +403,8 @@ public class GoGame : MonoBehaviour
         aiSetupPanel.SetActive(false);
         if (historyPanel != null) historyPanel.SetActive(false);
         if (historyDetail != null) historyDetail.SetActive(false);
+        if (settingsPanel != null) settingsPanel.SetActive(false);
+        SetVolumeQuickVisible(true);
         if (kifuForm != null) kifuForm.SetActive(false);
         if (ghostSr != null) ghostSr.enabled = false;
         RefreshStudyVisuals();
@@ -400,6 +415,8 @@ public class GoGame : MonoBehaviour
         if (uiNavigator != null) uiNavigator.Show(GoUiPage.AiSetup);
         mainPanel.SetActive(false);
         if (historyPanel != null) historyPanel.SetActive(false);
+        if (settingsPanel != null) settingsPanel.SetActive(false);
+        SetVolumeQuickVisible(false);
         aiSetupPanel.SetActive(true);
         SyncAiSetup();
     }
@@ -411,6 +428,8 @@ public class GoGame : MonoBehaviour
         if (uiNavigator != null) uiNavigator.Show(GoUiPage.History);
         mainPanel.SetActive(false);
         aiSetupPanel.SetActive(false);
+        if (settingsPanel != null) settingsPanel.SetActive(false);
+        SetVolumeQuickVisible(false);
         historyPanel.SetActive(true);
         if (historyDetail != null) historyDetail.SetActive(false);
         if (historySearch != null) historySearch.text = "";
@@ -433,6 +452,7 @@ public class GoGame : MonoBehaviour
         if (reviewingKifu || aiBusy || inMenu || rules.Result != null || rules.Phase != GoPhase.Play) return;
         if (vsAI && rules.Turn != humanColor) return;
         if (!rules.Play(x, y, out string msg)) { Flash(msg); return; }
+        audioManager?.PlaySfx("stone_place");
         AfterMove();
     }
 
@@ -496,6 +516,10 @@ public class GoGame : MonoBehaviour
             else if (!rules.Play(result.x, result.y, out string msg))
             {
                 Flash(msg);
+            }
+            else
+            {
+                audioManager?.PlaySfx("stone_place");
             }
         }
         else if (result != null && !string.IsNullOrEmpty(result.error))
@@ -1122,18 +1146,29 @@ public class GoGame : MonoBehaviour
         uiFactory = uiAppRoot.AddComponent<GoUiFactory>();
         uiFactory.Theme = uiTheme;
         uiNavigator = uiAppRoot.AddComponent<GoUiNavigator>();
-        uiNavigator.ReduceMotion = PlayerPrefs.GetInt("Qiyi.ReduceMotion", 0) != 0;
+        uiNavigator.ReduceMotion = PlayerPrefs.GetInt(ReduceMotionKey, 0) != 0;
 
         sceneBackgroundLayer = CreateCanvasLayer("SceneBackground", -10, false);
         var background = new GameObject("InkBackground");
         background.transform.SetParent(sceneBackgroundLayer.transform, false);
         var backgroundImage = background.AddComponent<Image>();
-        backgroundImage.color = uiTheme.Ink900;
+        backgroundImage.sprite = LoadArtSprite(
+            "Assets/Art/UI/Background/qiyi_ink_room_2048.png",
+            "UI/Background/qiyi_ink_room_2048");
+        backgroundImage.color = backgroundImage.sprite != null
+            ? new Color(1f, 1f, 1f, 0.40f) : uiTheme.Ink900;
         backgroundImage.raycastTarget = false;
         var backgroundRect = background.GetComponent<RectTransform>();
         backgroundRect.anchorMin = Vector2.zero;
         backgroundRect.anchorMax = Vector2.one;
         backgroundRect.offsetMin = backgroundRect.offsetMax = Vector2.zero;
+
+        AddBackgroundSprite(sceneBackgroundLayer.transform, "MountainSilhouette",
+            "Assets/Art/UI/Background/qiyi_mountain_silhouette_2048.png",
+            "UI/Background/qiyi_mountain_silhouette_2048", 0.22f);
+        AddBackgroundSprite(sceneBackgroundLayer.transform, "BambooShadow",
+            "Assets/Art/UI/Background/qiyi_bamboo_shadow_1024.png",
+            "UI/Background/qiyi_bamboo_shadow_1024", 0.18f);
 
         mainCanvasLayer = CreateCanvasLayer("MainCanvas", 0, true);
         modalCanvasLayer = CreateCanvasLayer("ModalCanvas", 100, true);
@@ -1142,6 +1177,48 @@ public class GoGame : MonoBehaviour
         transitionGroup.alpha = 1f;
         transitionGroup.interactable = false;
         transitionGroup.blocksRaycasts = false;
+    }
+
+    void AddBackgroundSprite(Transform parent, string objectName, string assetPath,
+        string resourceKey, float alpha)
+    {
+        var sprite = LoadArtSprite(assetPath, resourceKey);
+        if (sprite == null) return;
+
+        var go = new GameObject(objectName);
+        go.transform.SetParent(parent, false);
+        var image = go.AddComponent<Image>();
+        image.sprite = sprite;
+        image.color = new Color(1f, 1f, 1f, Mathf.Clamp01(alpha));
+        image.raycastTarget = false;
+        var rect = go.GetComponent<RectTransform>();
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = rect.offsetMax = Vector2.zero;
+    }
+
+    Sprite LoadArtSprite(string assetPath, string resourceKey)
+    {
+        var sprite = Resources.Load<Sprite>(resourceKey);
+        if (sprite == null) sprite = Resources.Load<Sprite>("Art/" + resourceKey);
+
+#if UNITY_EDITOR
+        if (sprite == null)
+            sprite = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(assetPath);
+        if (sprite == null)
+        {
+            var texture = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(assetPath);
+            if (texture != null)
+            {
+                sprite = Sprite.Create(texture,
+                    new Rect(0f, 0f, texture.width, texture.height),
+                    new Vector2(0.5f, 0.5f), 100f);
+                sprite.name = texture.name + "_RuntimeSprite";
+            }
+        }
+#endif
+
+        return sprite;
     }
 
     GameObject CreateCanvasLayer(string objectName, int sortingOrder, bool raycast)
@@ -1699,6 +1776,7 @@ public class GoGame : MonoBehaviour
     void ShowResultPopup(string title)
     {
         if (scorePopup == null) return;
+        audioManager?.PlaySfx("game_end");
         lastResultLine = title;
         scorePopupTitle.text = title;
         scorePopup.SetActive(true);
@@ -2113,7 +2191,7 @@ public class GoGame : MonoBehaviour
         var bg = new GameObject("Bg");
         bg.transform.SetParent(menuCanvas.transform, false);
         var bimg = bg.AddComponent<Image>();
-        bimg.color = new Color(0.08f, 0.07f, 0.05f, 0.96f);
+        bimg.color = new Color(0.08f, 0.07f, 0.05f, 0.72f);
         var brt = bg.GetComponent<RectTransform>();
         brt.anchorMin = Vector2.zero; brt.anchorMax = Vector2.one;
         brt.sizeDelta = Vector2.zero; brt.anchoredPosition = Vector2.zero;
@@ -2226,7 +2304,233 @@ public class GoGame : MonoBehaviour
         });
         historyPanel.SetActive(false);
         BuildHistoryDetail();
+        BuildSettingsPanel();
+        BuildSettingsButton();
+        BuildVolumeQuickControl();
         RegisterUiPages();
+    }
+
+    void BuildSettingsPanel()
+    {
+        settingsPanel = BuildMenuPanel("SettingsPanel", 860f, 620f, pt =>
+        {
+            MakeText(pt, "设置", 32, Ink, TextAnchor.MiddleCenter);
+            MakeText(pt, "偏好会保存在本机，下次启动继续生效", 13, Dim, TextAnchor.MiddleCenter);
+
+            var columns = MakeRow(pt, 430f);
+            var directory = new GameObject("SettingsDirectory");
+            directory.transform.SetParent(columns, false);
+            var directoryLayout = directory.AddComponent<LayoutElement>();
+            directoryLayout.preferredWidth = 190f;
+            directoryLayout.minWidth = 190f;
+            directoryLayout.flexibleWidth = 0f;
+            var directoryImage = directory.AddComponent<Image>();
+            directoryImage.color = new Color(0.10f, 0.08f, 0.06f, 0.94f);
+            var directoryGroup = directory.AddComponent<VerticalLayoutGroup>();
+            directoryGroup.padding = new RectOffset(12, 12, 14, 14);
+            directoryGroup.spacing = 6f;
+            directoryGroup.childAlignment = TextAnchor.UpperCenter;
+            directoryGroup.childControlWidth = true;
+            directoryGroup.childControlHeight = true;
+            directoryGroup.childForceExpandWidth = true;
+            directoryGroup.childForceExpandHeight = false;
+
+            string[] sections = { "音量", "界面", "棋盘", "AI引擎", "快捷键", "关于" };
+            for (int i = 0; i < sections.Length; i++)
+            {
+                int section = i;
+                var sectionButton = MakeButton(directory.transform, sections[i], 38f,
+                    () => ShowSettingsSection(section));
+                if (i == 0) StyleAccentLabel(sectionButton);
+            }
+
+            var content = new GameObject("SettingsContent");
+            content.transform.SetParent(columns, false);
+            var contentLayout = content.AddComponent<LayoutElement>();
+            contentLayout.flexibleWidth = 1f;
+            contentLayout.minWidth = 460f;
+            var contentImage = content.AddComponent<Image>();
+            contentImage.color = new Color(0.12f, 0.09f, 0.06f, 0.94f);
+            var contentGroup = content.AddComponent<VerticalLayoutGroup>();
+            contentGroup.padding = new RectOffset(24, 24, 22, 22);
+            contentGroup.spacing = 10f;
+            contentGroup.childAlignment = TextAnchor.UpperCenter;
+            contentGroup.childControlWidth = true;
+            contentGroup.childControlHeight = true;
+            contentGroup.childForceExpandWidth = true;
+            contentGroup.childForceExpandHeight = false;
+
+            MakeText(content.transform, "音量", 22, Ink, TextAnchor.MiddleLeft);
+            settingsMasterSlider = MakeSettingsSlider(content.transform, "主音量",
+                audioManager != null ? audioManager.MasterVolume : GoAudioManager.DefaultMasterVolume,
+                value => audioManager?.SetMasterVolume(value));
+            settingsMusicSlider = MakeSettingsSlider(content.transform, "音乐",
+                audioManager != null ? audioManager.MusicVolume : GoAudioManager.DefaultMusicVolume,
+                value => audioManager?.SetMusicVolume(value));
+            settingsSfxSlider = MakeSettingsSlider(content.transform, "音效",
+                audioManager != null ? audioManager.SfxVolume : GoAudioManager.DefaultSfxVolume,
+                value => audioManager?.SetSfxVolume(value));
+            settingsWarningSlider = MakeSettingsSlider(content.transform, "计时提醒",
+                audioManager != null ? audioManager.WarningVolume : GoAudioManager.DefaultWarningVolume,
+                value => audioManager?.SetWarningVolume(value));
+            settingsMuteToggle = uiFactory.MakeToggle(content.transform, "MuteToggle", "静音",
+                audioManager != null && audioManager.IsMuted, SetMuteFromUi);
+
+            MakeText(content.transform, "界面", 22, Ink, TextAnchor.MiddleLeft);
+            settingsReduceMotionToggle = uiFactory.MakeToggle(content.transform, "ReduceMotionToggle",
+                "减少动效", PlayerPrefs.GetInt(ReduceMotionKey, 0) != 0, SetReduceMotion);
+            MakeText(content.transform, "棋盘、AI引擎、快捷键和关于页面将在后续迁移阶段补齐。",
+                13, Dim, TextAnchor.UpperLeft);
+
+            MakeButton(pt, "返回", 40f, ShowMainMenu);
+        });
+        settingsPanel.SetActive(false);
+    }
+
+    Slider MakeSettingsSlider(Transform parent, string label, float value,
+        UnityEngine.Events.UnityAction<float> onChanged)
+    {
+        var row = MakeRow(parent, 34f);
+        var text = MakeText(row, label, 14, Dim, TextAnchor.MiddleLeft);
+        var textLayout = text.gameObject.GetComponent<LayoutElement>();
+        if (textLayout == null) textLayout = text.gameObject.AddComponent<LayoutElement>();
+        textLayout.preferredWidth = 82f;
+        textLayout.minWidth = 82f;
+        textLayout.flexibleWidth = 0f;
+        return uiFactory.MakeSlider(row, "Slider_" + label, value, onChanged);
+    }
+
+    void BuildSettingsButton()
+    {
+        var button = MakeButton(menuCanvas.transform, "设置", 40f, ShowSettings);
+        SetFixedWidth(button, 92f);
+        var rect = button.GetComponent<RectTransform>();
+        rect.anchorMin = rect.anchorMax = new Vector2(1f, 1f);
+        rect.pivot = new Vector2(1f, 1f);
+        rect.anchoredPosition = new Vector2(-28f, -26f);
+    }
+
+    void BuildVolumeQuickControl()
+    {
+        var root = new GameObject("VolumeQuickControl");
+        root.transform.SetParent(menuCanvas.transform, false);
+        var rootRect = root.AddComponent<RectTransform>();
+        rootRect.anchorMin = rootRect.anchorMax = new Vector2(1f, 0f);
+        rootRect.pivot = new Vector2(1f, 0f);
+        rootRect.anchoredPosition = new Vector2(-28f, 28f);
+        rootRect.sizeDelta = new Vector2(330f, 52f);
+        var rootImage = root.AddComponent<Image>();
+        rootImage.color = new Color(0.10f, 0.08f, 0.06f, 0.78f);
+        var layout = root.AddComponent<HorizontalLayoutGroup>();
+        layout.padding = new RectOffset(10, 10, 8, 8);
+        layout.spacing = 8f;
+        layout.childAlignment = TextAnchor.MiddleCenter;
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+        layout.childForceExpandWidth = false;
+        layout.childForceExpandHeight = true;
+
+        var iconObject = new GameObject("Icon");
+        iconObject.transform.SetParent(root.transform, false);
+        var iconLayout = iconObject.AddComponent<LayoutElement>();
+        iconLayout.preferredWidth = 28f;
+        iconLayout.minWidth = 28f;
+        iconLayout.preferredHeight = 28f;
+        var icon = iconObject.AddComponent<Image>();
+        icon.sprite = GoIconCatalog.Load(GoIconCatalog.Volume);
+        icon.color = uiTheme.Gold;
+        icon.raycastTarget = false;
+
+        quickMasterVolumeSlider = uiFactory.MakeSlider(root.transform, "MasterVolumeSlider",
+            audioManager != null ? audioManager.MasterVolume : GoAudioManager.DefaultMasterVolume,
+            value => audioManager?.SetMasterVolume(value));
+        var sliderLayout = quickMasterVolumeSlider.GetComponent<LayoutElement>();
+        sliderLayout.preferredWidth = QuickVolumeSliderWidth();
+        sliderLayout.minWidth = sliderLayout.preferredWidth;
+        sliderLayout.flexibleWidth = 0f;
+
+        quickMuteButton = MakeButton(root.transform, "静音", 32f,
+            () => SetMuteFromUi(audioManager != null && !audioManager.IsMuted));
+        SetFixedWidth(quickMuteButton, 56f);
+        SyncAudioControls();
+    }
+
+    static float QuickVolumeSliderWidth()
+    {
+        if (Screen.width <= 0) return 160f;
+        if (Screen.width <= 1400) return 140f;
+        if (Screen.width >= 1800) return 180f;
+        return Mathf.Lerp(140f, 180f,
+            Mathf.InverseLerp(1366f, 1920f, Screen.width));
+    }
+
+    void ShowSettingsSection(int section)
+    {
+        if (section == 1 && settingsReduceMotionToggle != null)
+            settingsReduceMotionToggle.Select();
+        if (section == 0 && settingsMasterSlider != null)
+            settingsMasterSlider.Select();
+    }
+
+    void ShowSettings()
+    {
+        SyncAudioControls();
+        menuCanvas.SetActive(true);
+        mainPanel.SetActive(false);
+        aiSetupPanel.SetActive(false);
+        if (historyPanel != null) historyPanel.SetActive(false);
+        if (historyDetail != null) historyDetail.SetActive(false);
+        if (settingsPanel != null) settingsPanel.SetActive(true);
+        SetVolumeQuickVisible(false);
+        if (uiNavigator != null) uiNavigator.Show(GoUiPage.Settings);
+    }
+
+    void SetVolumeQuickVisible(bool visible)
+    {
+        if (quickMasterVolumeSlider != null && quickMasterVolumeSlider.transform.parent != null)
+            quickMasterVolumeSlider.transform.parent.gameObject.SetActive(visible);
+    }
+
+    void SetMuteFromUi(bool value)
+    {
+        if (audioManager != null) audioManager.SetMute(value);
+        SyncAudioControls();
+    }
+
+    void SetReduceMotion(bool value)
+    {
+        PlayerPrefs.SetInt(ReduceMotionKey, value ? 1 : 0);
+        PlayerPrefs.Save();
+        if (uiNavigator != null)
+        {
+            uiNavigator.ReduceMotion = value;
+            uiNavigator.ReplayCurrentPage();
+        }
+    }
+
+    void SyncAudioControls()
+    {
+        if (audioManager == null) return;
+        if (quickMasterVolumeSlider != null)
+            quickMasterVolumeSlider.SetValueWithoutNotify(audioManager.MasterVolume);
+        if (settingsMasterSlider != null)
+            settingsMasterSlider.SetValueWithoutNotify(audioManager.MasterVolume);
+        if (settingsMusicSlider != null)
+            settingsMusicSlider.SetValueWithoutNotify(audioManager.MusicVolume);
+        if (settingsSfxSlider != null)
+            settingsSfxSlider.SetValueWithoutNotify(audioManager.SfxVolume);
+        if (settingsWarningSlider != null)
+            settingsWarningSlider.SetValueWithoutNotify(audioManager.WarningVolume);
+        if (settingsMuteToggle != null)
+            settingsMuteToggle.SetIsOnWithoutNotify(audioManager.IsMuted);
+        if (settingsReduceMotionToggle != null)
+            settingsReduceMotionToggle.SetIsOnWithoutNotify(
+                PlayerPrefs.GetInt(ReduceMotionKey, 0) != 0);
+        if (quickMuteButton != null)
+        {
+            var label = quickMuteButton.GetComponentInChildren<Text>();
+            if (label != null) label.text = audioManager.IsMuted ? "取消静音" : "静音";
+        }
     }
 
     void RegisterUiPages()
@@ -2235,6 +2539,7 @@ public class GoGame : MonoBehaviour
         uiNavigator.Register(GoUiPage.MainMenu, mainPanel);
         uiNavigator.Register(GoUiPage.AiSetup, aiSetupPanel);
         uiNavigator.Register(GoUiPage.History, historyPanel);
+        uiNavigator.Register(GoUiPage.Settings, settingsPanel);
         uiNavigator.Register(GoUiPage.Playing, gameUiPanel);
         uiNavigator.Register(GoUiPage.Study, gameUiPanel);
         uiNavigator.Register(GoUiPage.Review, gameUiPanel);
@@ -2309,6 +2614,7 @@ public class GoGame : MonoBehaviour
     void OpenKifuReview(KifuRecord rec)
     {
         if (rec == null) return;
+        audioManager?.PlayMusic("bgm_review");
         reviewingKifu = true;
         reviewRec = rec;
         inStudyMode = false;
@@ -2650,10 +2956,15 @@ public class GoGame : MonoBehaviour
 
     Button MakeButton(Transform parent, string label, float height, UnityEngine.Events.UnityAction cb)
     {
+        UnityEngine.Events.UnityAction wrapped = () =>
+        {
+            audioManager?.PlaySfx("button_click");
+            cb?.Invoke();
+        };
         if (uiFactory != null)
         {
             var style = height >= 48f ? GoButtonStyle.Primary : GoButtonStyle.Secondary;
-            var button = uiFactory.MakeButton(parent, "Btn_" + label, label, style, cb);
+            var button = uiFactory.MakeButton(parent, "Btn_" + label, label, style, wrapped);
             var layout = button.GetComponent<LayoutElement>();
             if (layout != null)
             {
@@ -2677,7 +2988,7 @@ public class GoGame : MonoBehaviour
         colors.fadeDuration = 0.08f;
         btn.colors = colors;
         btn.targetGraphic = img;
-        btn.onClick.AddListener(cb);
+        btn.onClick.AddListener(wrapped);
 
         var tgo = new GameObject("Label");
         tgo.transform.SetParent(go.transform, false);
@@ -3847,11 +4158,13 @@ public class GoGame : MonoBehaviour
 
     void OnApplicationQuit()
     {
+        if (audioManager != null) audioManager.SavePrefs();
         GoKataGo.Shutdown();
     }
 
     void OnDestroy()
     {
+        if (audioManager != null) audioManager.SavePrefs();
         GoKataGo.Shutdown();
     }
 }
