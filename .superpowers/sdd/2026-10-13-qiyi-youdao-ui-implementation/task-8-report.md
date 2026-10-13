@@ -79,3 +79,11 @@ Task 8 的代码、构建脚本、README 和测试资源交付已在发布提交
 - 按用户中止指令，本轮在上述验证后停止，不再运行新的测试或启动交互式编辑器。
 - Play Mode、1920×1080 / 1600×900 / 1366×768 的人工点击验收、标准 EditMode XML 和无 Unity 编辑器的干净 Windows 启动仍未执行。
 - 本轮 Windows build 日志报告成功，但最终 `GoGame.exe` 指纹未变化；发布验收仍需在可确认产物更新时间/指纹变化的环境重新生成并启动验证。
+
+## 发布收尾验收证据（2026-10-14，HEAD `141d77c`）
+
+- 最终构建日志 `Logs/task8-final-build.log` 已核对：包含 `Build Finished, Result: Success.`（第 2582 行）和 `BUILD OK -> Builds/Windows/GoGame.exe`（第 2597 行）。
+- 最终自定义 TestRunner 日志 `Logs/task8-final-tests.log` 已核对：包含 `CompileScripts`（第 335 行）、`[GoRulesTests] All 11 rule tests passed successfully!`（第 377 行）、`[GoSaveTests] All 6 persistence tests passed successfully!`（第 387 行）、`[GoAiTests] All AI tests passed successfully!`（第 397 行）和 `ALL TESTS PASSED SUCCESSFULLY!`（第 407 行）。
+- 已删除本轮自定义 TestRunner 生成的临时 `test_result.txt`；既有未跟踪的 `docs/superpowers/plans/` 保持不变，未纳入提交。
+- `Assets/Scenes/Main.unity` 的未提交差异仅涉及 `QiyiRuntimeAssetManifest` 的三个本地 fileID 由 `641992359/641992360/641992361` 重编号为 `1840150290/1840150291/1840150292`。当前 GameObject 的两个组件引用、MonoBehaviour/Transform 的 `m_GameObject` 反向引用以及 `SceneRoots.m_Roots` 均指向新 ID，旧 ID 不再残留；脚本和音频等外部 GUID 未变化。该差异确认是 BuildScript/Unity 场景序列化产生的自动重写，不是业务逻辑改动。由于 Main.unity 是发布构建场景，保留并纳入本次收尾提交，确保提交内容与最终构建所用场景一致。
+- Play Mode、标准 EditMode/NUnit 可验证执行以及无 Unity 编辑器的干净 Windows 启动/旧棋谱打开验收仍未完成；本轮不据此声称发布交互验收通过。
