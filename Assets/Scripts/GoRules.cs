@@ -414,6 +414,7 @@ public class GoRules
 
     public void ConfirmEnd()
     {
+        if (!string.IsNullOrEmpty(Result)) return;
         if (Phase != GoPhase.Scoring) return;
         ComputeScore(out float bs, out float ws, out _, out _, out _, out _);
         Result = GoResultFormatter.FormatScore(bs, ws);

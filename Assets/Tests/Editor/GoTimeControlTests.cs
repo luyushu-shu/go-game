@@ -34,12 +34,22 @@ public class GoTimeControlTests
     public void CustomByoyomiAcceptsOneTo20PeriodsAndFiveTo600Seconds()
     {
         var value = GoTimeControl.FromPreset(GoTimePreset.Custom, GoByoyomiPreset.Custom);
-        value.MainTimeSeconds = 0;
+        value.MainTimeSeconds = 60;
         value.ByoyomiPeriods = 1;
         value.ByoyomiSeconds = 5;
         Assert.IsTrue(value.TryValidate(out _));
         value.ByoyomiPeriods = 20;
         value.ByoyomiSeconds = 600;
         Assert.IsTrue(value.TryValidate(out _));
+    }
+
+    [Test]
+    public void CustomByoyomiRejectsZeroMainTime()
+    {
+        var value = GoTimeControl.FromPreset(GoTimePreset.Custom, GoByoyomiPreset.Custom);
+        value.MainTimeSeconds = 0;
+        value.ByoyomiPeriods = 1;
+        value.ByoyomiSeconds = 5;
+        Assert.IsFalse(value.TryValidate(out _));
     }
 }

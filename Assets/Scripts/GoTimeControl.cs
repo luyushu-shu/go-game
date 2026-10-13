@@ -109,9 +109,7 @@ public struct GoTimeControl
                 }
                 break;
             case GoTimePreset.Custom:
-                if ((MainTimeSeconds == 0 && ByoyomiPreset == GoByoyomiPreset.None) ||
-                    MainTimeSeconds < 0 || MainTimeSeconds > 600 * 60 ||
-                    (MainTimeSeconds > 0 && MainTimeSeconds < 60))
+                if (MainTimeSeconds < 60 || MainTimeSeconds > 600 * 60)
                 {
                     error = "Custom main time must be between 1 and 600 minutes.";
                     return false;
