@@ -91,19 +91,7 @@ public static class GoLlmAi
     {
         GoMoveResult res = null;
         yield return RequestMoveAsync(rules, color, r => res = r);
-        if (res != null && res.success)
-        {
-            LastError = null;
-            ResultIsPass = res.isPass;
-            ResultX = res.x;
-            ResultY = res.y;
-        }
-        else
-        {
-            LastError = res?.error ?? "大模型调用失败";
-            ResultIsPass = false;
-            ResultX = ResultY = -1;
-        }
+        SetLegacyResult(res);
     }
 
     public static IEnumerator RequestMoveAsync(GoRules rules, int color, Action<GoMoveResult> onComplete)
@@ -116,43 +104,54 @@ public static class GoLlmAi
         }
 
         string user = BuildPrompt(rules, color, null);
-        yield return PostChat(key, user);
-        if (LastError != null)
+        GoMoveResult result = null;
+        yield return PostChat(key, user, r => result = r);
+        if (result == null)
         {
-            onComplete?.Invoke(GoMoveResult.Fail(LastError));
+            onComplete?.Invoke(GoMoveResult.Fail("大模型调用没有返回结果"));
             yield break;
         }
-        if (TryApply(rules, color, out _))
+        if (!result.success)
         {
-            if (ResultIsPass) onComplete?.Invoke(GoMoveResult.Pass());
-            else onComplete?.Invoke(GoMoveResult.Move(ResultX, ResultY));
+            onComplete?.Invoke(result);
+            yield break;
+        }
+        if (TryApply(rules, color, result, out string why))
+        {
+            onComplete?.Invoke(result);
             yield break;
         }
 
-        string bad = LastError ?? "非法坐标";
-        LastError = null;
+        string bad = why ?? "非法坐标";
         user = BuildPrompt(rules, color, bad);
-        yield return PostChat(key, user);
-        if (LastError != null)
+        result = null;
+        yield return PostChat(key, user, r => result = r);
+        if (result == null)
         {
-            onComplete?.Invoke(GoMoveResult.Fail(LastError));
+            onComplete?.Invoke(GoMoveResult.Fail("大模型重试没有返回结果"));
             yield break;
         }
-        if (TryApply(rules, color, out _))
+        if (!result.success)
         {
-            if (ResultIsPass) onComplete?.Invoke(GoMoveResult.Pass());
-            else onComplete?.Invoke(GoMoveResult.Move(ResultX, ResultY));
+            onComplete?.Invoke(result);
+            yield break;
+        }
+        if (TryApply(rules, color, result, out why))
+        {
+            onComplete?.Invoke(result);
         }
         else
         {
-            onComplete?.Invoke(GoMoveResult.Fail(LastError ?? "大模型选点非法"));
+            onComplete?.Invoke(GoMoveResult.Fail(why ?? "大模型选点非法"));
         }
     }
 
-    static IEnumerator PostChat(string key, string user)
+    static IEnumerator PostChat(string key, string user, Action<GoMoveResult> onComplete)
     {
+        string url = ApiUrl;
+        string model = Model;
         string body =
-            "{\"model\":\"" + Esc(Model) + "\"," +
+            "{\"model\":\"" + Esc(model) + "\"," +
             "\"temperature\":0.2," +
             "\"max_tokens\":40," +
             "\"messages\":[" +
@@ -165,7 +164,7 @@ public static class GoLlmAi
         {
             try
             {
-                var req = (HttpWebRequest)WebRequest.Create(ApiUrl);
+                var req = (HttpWebRequest)WebRequest.Create(url);
                 req.Method = "POST";
                 req.ContentType = "application/json";
                 req.Headers.Add("Authorization", "Bearer " + key);
@@ -200,35 +199,53 @@ public static class GoLlmAi
         while (!task.IsCompleted) yield return null;
         if (!string.IsNullOrEmpty(err))
         {
-            LastError = err;
+            onComplete?.Invoke(GoMoveResult.Fail(err));
             yield break;
         }
         string content = ExtractContent(json);
         if (string.IsNullOrEmpty(content))
         {
-            LastError = "模型没有返回着法";
+            onComplete?.Invoke(GoMoveResult.Fail("模型没有返回着法"));
             yield break;
         }
-        if (!ParseMove(content, out int x, out int y, out bool pass))
-        {
-            LastError = "无法解析着法: " + Trunc(content, 40);
-            yield break;
-        }
-        ResultIsPass = pass;
-        ResultX = x;
-        ResultY = y;
+        onComplete?.Invoke(ParseMoveResult(content));
     }
 
-    static bool TryApply(GoRules rules, int color, out string why)
+    static bool TryApply(GoRules rules, int color, GoMoveResult result, out string why)
     {
         why = null;
-        if (ResultIsPass) return true;
-        if (!IsLegal(rules, ResultX, ResultY, color))
+        if (result.isPass) return true;
+        if (!IsLegal(rules, result.x, result.y, color))
         {
-            why = LastError = "非法着点 " + Coord(ResultX, ResultY);
+            why = "非法着点 " + Coord(result.x, result.y);
             return false;
         }
         return true;
+    }
+
+    public static GoMoveResult ParseMoveResult(string raw)
+    {
+        if (string.IsNullOrEmpty(raw)) return GoMoveResult.Fail("模型没有返回着法");
+        if (!ParseMove(raw, out int x, out int y, out bool pass))
+            return GoMoveResult.Fail("无法解析着法: " + Trunc(raw, 40));
+        return pass ? GoMoveResult.Pass() : GoMoveResult.Move(x, y);
+    }
+
+    static void SetLegacyResult(GoMoveResult result)
+    {
+        if (result != null && result.success)
+        {
+            LastError = null;
+            ResultIsPass = result.isPass;
+            ResultX = result.x;
+            ResultY = result.y;
+        }
+        else
+        {
+            LastError = result?.error ?? "大模型调用失败";
+            ResultIsPass = false;
+            ResultX = ResultY = -1;
+        }
     }
 
     public static bool IsLegal(GoRules g, int x, int y, int color)

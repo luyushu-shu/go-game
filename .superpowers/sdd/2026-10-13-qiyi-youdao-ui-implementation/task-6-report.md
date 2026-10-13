@@ -43,3 +43,25 @@
 - 快速静态断言：7 项通过，覆盖读秒段号、`rules.Turn` 启动、AI epoch/终局门禁、终局保存入口和两个聚焦测试存在性；`git diff --check` 通过。
 - 已尝试在目标隔离工作树执行 Tuanjie batch compile 与 `TestRunner.RunAllTests`；托管编辑器在项目初始化阶段因工作树 ACL 判定 `Project folder or disk is read only`，未进入可靠的完整编译/TestRunner 结果。随后启动的可写临时验证副本按用户要求中止，未将其结果宣称为通过。
 - 标准 managed EditMode 未获得执行结果；Play Mode 未运行。两者仍受当前 headless/托管编辑器环境限制；本轮限制已记录，不影响修复源码与静态检查收敛。
+
+## 第二轮修复：LLM 请求结果隔离
+
+### 实现
+
+- `GoLlmAi.PostChat` 改为通过回调传递本次请求新建的 `GoMoveResult`，不再写入共享静态结果字段。
+- `RequestMoveAsync` 的首次请求和非法坐标重试各自保存局部 `GoMoveResult`，合法性检查只读取该局部结果；旧 HTTP 请求完成后不会改变新协程的结果或重试状态。
+- 保留旧 `RequestMove` 入口及 `ResultX`、`ResultY`、`ResultIsPass`、`LastError` 作为兼容镜像，但只在旧入口完整结束后由 `SetLegacyResult` 更新；`GoAiController` 继续只消费 `RequestMoveAsync` 回调结果，未读取共享静态字段。
+- 新增公开的 `ParseMoveResult` 纯结果接口，供最小单元断言覆盖“两个解析结果对象互不共享”和“错误不污染后续结果”。
+- 未修改 GoAI 算法、围棋规则、历史/SGF、GoGame 或 Task 7 内容。
+
+### 本轮验证
+
+- Tuanjie 批处理脚本编译：通过，日志包含 `Compiling Scripts` 与 `Exiting batchmode successfully now!`。
+- `TestRunner.RunAllTests`：通过；GoRules 11 项、GoSave 6 项、GoAi 回归均报告 PASSED。
+- 静态隔离断言：通过；确认 `GoAiController` 没有读取 `GoLlmAi` 的共享结果字段，所有 `PostChat` 调用均传递局部结果回调；`git diff --check` 通过。
+- 聚焦 EditMode NUnit：已尝试 `GoLlmAiTests`，但当前托管/headless 环境返回 `Scan Filter Count: 0` 且未生成 XML，因此不能宣称该 NUnit 测试已执行。
+
+### 环境限制与 concerns
+
+- 未连接真实 LLM 端点，未做双 HTTP 延迟交错的在线集成测试；隔离性由局部闭包/局部结果路径和纯接口断言覆盖。
+- Tuanjie 日志仍包含 Licensing Client 初始连接/Access token 提示，但随后脚本编译与现有 TestRunner 均成功。
