@@ -231,7 +231,14 @@ public class GoRules
     public void ResignBy(int color)
     {
         if (Result != null) return;
-        Result = color == BLACK ? "白中盘胜" : "黑中盘胜";
+        Result = GoResultFormatter.FormatResign(color);
+        Phase = GoPhase.Over;
+    }
+
+    public void FinishByTimeout(int loserColor)
+    {
+        if (Result != null) return;
+        Result = GoResultFormatter.FormatTimeout(loserColor);
         Phase = GoPhase.Over;
     }
 
@@ -409,8 +416,7 @@ public class GoRules
     {
         if (Phase != GoPhase.Scoring) return;
         ComputeScore(out float bs, out float ws, out _, out _, out _, out _);
-        float diff = bs > ws ? bs - ws : ws - bs;
-        Result = (bs > ws ? "黑方胜 " : "白方胜 ") + diff.ToString("0.0") + " 目";
+        Result = GoResultFormatter.FormatScore(bs, ws);
         Phase = GoPhase.Over;
     }
 
