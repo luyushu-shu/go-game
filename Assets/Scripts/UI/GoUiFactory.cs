@@ -37,7 +37,7 @@ public sealed class GoUiFactory : MonoBehaviour
         var button = go.AddComponent<Button>();
         button.targetGraphic = image;
         var colors = button.colors;
-        colors.normalColor = Color.white;
+        colors.normalColor = ButtonColor(theme, style);
         colors.highlightedColor = HighlightColor(theme, style);
         colors.pressedColor = PressedColor(theme, style);
         colors.selectedColor = HighlightColor(theme, style);
