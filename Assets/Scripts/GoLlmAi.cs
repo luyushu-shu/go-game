@@ -89,27 +89,64 @@ public static class GoLlmAi
 
     public static IEnumerator RequestMove(GoRules rules, int color)
     {
-        LastError = null;
-        ResultIsPass = false;
-        ResultX = ResultY = 0;
+        GoMoveResult res = null;
+        yield return RequestMoveAsync(rules, color, r => res = r);
+        if (res != null && res.success)
+        {
+            LastError = null;
+            ResultIsPass = res.isPass;
+            ResultX = res.x;
+            ResultY = res.y;
+        }
+        else
+        {
+            LastError = res?.error ?? "大模型调用失败";
+            ResultIsPass = false;
+            ResultX = ResultY = -1;
+        }
+    }
+
+    public static IEnumerator RequestMoveAsync(GoRules rules, int color, Action<GoMoveResult> onComplete)
+    {
         string key = ApiKey;
         if (string.IsNullOrEmpty(key))
         {
-            LastError = "未配置密钥";
+            onComplete?.Invoke(GoMoveResult.Fail("未配置密钥"));
             yield break;
         }
 
         string user = BuildPrompt(rules, color, null);
         yield return PostChat(key, user);
-        if (LastError != null) yield break;
-        if (TryApply(rules, color, out _)) yield break;
+        if (LastError != null)
+        {
+            onComplete?.Invoke(GoMoveResult.Fail(LastError));
+            yield break;
+        }
+        if (TryApply(rules, color, out _))
+        {
+            if (ResultIsPass) onComplete?.Invoke(GoMoveResult.Pass());
+            else onComplete?.Invoke(GoMoveResult.Move(ResultX, ResultY));
+            yield break;
+        }
 
         string bad = LastError ?? "非法坐标";
         LastError = null;
         user = BuildPrompt(rules, color, bad);
         yield return PostChat(key, user);
-        if (LastError != null) yield break;
-        TryApply(rules, color, out _);
+        if (LastError != null)
+        {
+            onComplete?.Invoke(GoMoveResult.Fail(LastError));
+            yield break;
+        }
+        if (TryApply(rules, color, out _))
+        {
+            if (ResultIsPass) onComplete?.Invoke(GoMoveResult.Pass());
+            else onComplete?.Invoke(GoMoveResult.Move(ResultX, ResultY));
+        }
+        else
+        {
+            onComplete?.Invoke(GoMoveResult.Fail(LastError ?? "大模型选点非法"));
+        }
     }
 
     static IEnumerator PostChat(string key, string user)

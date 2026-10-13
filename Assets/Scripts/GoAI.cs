@@ -47,7 +47,7 @@ public static class GoAI
 
     static readonly HashSet<string> Pat3Set = BuildPat3();
 
-    public static void BeginSearch(GoRules g, int color, float seconds)
+    public static void SearchAsync(GoRules g, int color, float seconds, Action<GoMoveResult> onComplete)
     {
         int n = g.Size;
         int[] board = (int[])g.Board.Clone();
@@ -61,11 +61,30 @@ public static class GoAI
             var fb = new FastBoard(n, board, color, hist, g.Komi, g.MoveCount, g.LastMove);
             int best = Mcts(fb, seconds, rng, out double wr);
             if (myId != SearchId) return;
-            ResultIsPass = best == PASS;
-            if (!ResultIsPass) { ResultX = best % n; ResultY = best / n; }
+
+            GoMoveResult result;
+            if (best == PASS)
+            {
+                result = GoMoveResult.Pass();
+                result.winrate = (float)wr;
+            }
+            else
+            {
+                result = GoMoveResult.Move(best % n, best / n, (float)wr);
+            }
+
+            ResultIsPass = result.isPass;
+            if (!ResultIsPass) { ResultX = result.x; ResultY = result.y; }
             BestWinRate = wr;
             SearchDone = true;
+
+            onComplete?.Invoke(result);
         });
+    }
+
+    public static void BeginSearch(GoRules g, int color, float seconds)
+    {
+        SearchAsync(g, color, seconds, null);
     }
 
     /* ---------------- 3x3 模式（Michi pat3src） ---------------- */

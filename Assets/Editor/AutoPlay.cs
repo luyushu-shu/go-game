@@ -7,6 +7,7 @@ static class AutoPlay
 {
     static AutoPlay()
     {
+        if (UnityEngine.Application.isBatchMode) return;
         if (SessionState.GetBool("gogame_autoplay_done", false)) return;
         SessionState.SetBool("gogame_autoplay_done", true);
         EditorApplication.delayCall += TryEnter;

@@ -4,6 +4,49 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
+[System.Serializable]
+public class MoveCommentItem
+{
+    public int ply;
+    public string text;
+}
+
+[System.Serializable]
+public class MoveCommentsData
+{
+    public List<MoveCommentItem> items = new List<MoveCommentItem>();
+}
+
+[System.Serializable]
+public class BranchStepData
+{
+    public int step;
+    public int x;
+    public int y;
+    public int color;
+    public bool isPass;
+    public float winrate = -1f;
+    public float scoreLead = 0f;
+    public string comment = "";
+}
+
+[System.Serializable]
+public class MoveBranchData
+{
+    public int branchId;
+    public string name;
+    public int startPly;
+    public bool isExpanded = true;
+    public string branchComment = "";
+    public List<BranchStepData> steps = new List<BranchStepData>();
+}
+
+[System.Serializable]
+public class MoveBranchesCatalog
+{
+    public List<MoveBranchData> branches = new List<MoveBranchData>();
+}
+
 // 运行自举：场景无需任何手工布置，按 Play 即进入主界面。
 // 棋盘木纹、网格、星位、棋子、标记全部程序化生成。
 public class GoGame : MonoBehaviour
@@ -21,9 +64,63 @@ public class GoGame : MonoBehaviour
     bool aiBusy = false;
     bool inMenu = true;
 
+    // KataGo 复盘分析与变化推演状态
+    bool aiReviewEnabled = false;
+    bool isAnalyzingFullGame = false;
+    KataPositionAnalysis curPosAnalysis;
+    KataGameAnalysis gameAnalysis;
+    Coroutine curAnalysisCo, fullAnalysisCo;
+    int hoveredCandidateIdx = -1;
+    bool inBranchMode = false;
+    int branchPlyStart = 0;
+    int branchMoveCount = 0;
+    float branchLastWinrate = -1f;
+
+    // 推演变化与批注系统
+    List<MoveBranchData> reviewBranches = new List<MoveBranchData>();
+    int curBranchIdx = -1;
+    int curBranchStepIdx = -1;
+    Text btnCurBranchLabel;
+
+    Dictionary<int, string> moveComments = new Dictionary<int, string>();
+    GameObject commentModuleRoot;
+    Text commentModuleTitle;
+    InputField commentInputField;
+    Text commentSaveIndicator;
+    Coroutine commentSaveTipCo;
+
+    GameObject reviewAiRoot;
+    Text winrateInfoText;
+    RawImage winrateChartImg;
+    Texture2D winrateChartTex;
+    Text btnAiReviewLabel;
+    Text btnFullAnalyzeLabel;
+    GameObject btnExitBranch;
+    GameObject btnBranchUndo;
+    GameObject btnStepAi;
+
+    RectTransform barBlackRt, barWhiteRt;
+    Text winrateBarText;
+    Text candInfoText;
+
+    const int MaxCandidates = 5;
+    const int MaxPvSteps = 15;
+    Sprite candBadgeSpr;
+    GameObject candRoot;
+    GameObject[] candBadges = new GameObject[MaxCandidates];
+    TextMesh[] candTexts = new TextMesh[MaxCandidates];
+    SpriteRenderer[] candSrs = new SpriteRenderer[MaxCandidates];
+    int[] candIdxs = new int[MaxCandidates];
+    int activeCandCount = 0;
+
+    GameObject pvRoot;
+    SpriteRenderer[] pvStoneSrs = new SpriteRenderer[MaxPvSteps];
+    TextMesh[] pvTextMeshes = new TextMesh[MaxPvSteps];
+
     const int StudyBoardSize = 19;
-    const string StudySaveKey = "GoStudySave";
-    static string StudySavePath => System.IO.Path.Combine(Application.persistentDataPath, "study_save.json");
+    const string StudySaveKey = GoSaveManager.StudySaveKey;
+    static string StudySavePath => GoSaveManager.StudySavePath;
+    GoAiController aiController;
 
     // 人机对弈开局设置（进入对局前选定，局内不可改）
     int sizeChoice = 2;      // 0=9路 1=13路 2=19路
@@ -42,6 +139,22 @@ public class GoGame : MonoBehaviour
     SpriteRenderer[,] stoneSr;
     SpriteRenderer[,] deadSr;
     SpriteRenderer[,] terrSr;
+    public enum GoMarkType
+    {
+        None = 0,
+        Cross = 1,
+        Triangle = 2,
+        Square = 3,
+        Circle = 4
+    }
+
+    GoMarkType activeMarkTool = GoMarkType.None;
+    int[] boardMarks;
+    SpriteRenderer[,] markSr;
+    SpriteRenderer ghostMarkSr;
+    Sprite markCrossSpr, markTriangleSpr, markSquareSpr, markCircleSpr;
+    List<Button> optMarkButtons = new List<Button>();
+
     TextMesh[,] moveNumMeshes;
     SpriteRenderer ghostSr, markerSr;
     Sprite stoneBlack, stoneWhite, deadXSpr, ringSpr, boxSpr;
@@ -112,8 +225,14 @@ public class GoGame : MonoBehaviour
         deadXSpr = MakeDeadXSprite();
         ringSpr = MakeRingSprite();
         boxSpr = MakeBoxSprite();
+        candBadgeSpr = MakeBadgeSprite();
+        markCrossSpr = MakeMarkCrossSprite();
+        markTriangleSpr = MakeMarkTriangleSprite();
+        markSquareSpr = MakeMarkSquareSprite();
+        markCircleSpr = MakeMarkCircleSprite();
 
         rules = new GoRules(boardSize);
+        aiController = gameObject.AddComponent<GoAiController>();
         BuildBoard();
         BuildUI();
         BuildMenu();
@@ -129,6 +248,7 @@ public class GoGame : MonoBehaviour
         boardSize = StudyBoardSize;
         showMoveNums = true;
         aiBusy = false;
+        aiController?.Cancel();
         StopAllCoroutines();
 
         if (TryLoadStudySave(out var data) && rules.ImportState(data))
@@ -173,6 +293,7 @@ public class GoGame : MonoBehaviour
                    : (Random.value < 0.5f ? GoRules.BLACK : GoRules.WHITE);
 
         aiBusy = false;
+        aiController?.Cancel();
         StopAllCoroutines();
         rules.Reset(boardSize);
         rules.Komi = komi;
@@ -203,55 +324,16 @@ public class GoGame : MonoBehaviour
 
     bool TryLoadStudySave(out GoStateData data)
     {
-        data = null;
-        var a = ParseStudyJson(System.IO.File.Exists(StudySavePath)
-            ? System.IO.File.ReadAllText(StudySavePath) : null);
-        var b = PlayerPrefs.HasKey(StudySaveKey)
-            ? ParseStudyJson(PlayerPrefs.GetString(StudySaveKey)) : null;
-        data = PickRicherSave(a, b);
-        return data != null && data.size > 0;
-    }
-
-    static GoStateData ParseStudyJson(string json)
-    {
-        if (string.IsNullOrEmpty(json)) return null;
-        var d = JsonUtility.FromJson<GoStateData>(json);
-        return d != null && d.size > 0 ? d : null;
-    }
-
-    static GoStateData PickRicherSave(GoStateData a, GoStateData b)
-    {
-        if (a == null) return b;
-        if (b == null) return a;
-        return CountMoveNums(b) > CountMoveNums(a) ? b : a;
-    }
-
-    static int CountMoveNums(GoStateData d)
-    {
-        if (d == null) return 0;
-        int n = 0;
-        if (!string.IsNullOrEmpty(d.moveAtCsv))
-            foreach (var p in d.moveAtCsv.Split(','))
-                if (int.TryParse(p, out int v) && v > 0) n++;
-        if (!string.IsNullOrEmpty(d.moveLogCsv))
-            n = System.Math.Max(n, d.moveLogCsv.Split('|').Length);
-        if (d.moveCount > n) n = d.moveCount;
-        return n;
+        return GoSaveManager.TryLoadStudySave(out data, out _);
     }
 
     void SaveStudyProgress()
     {
         if (!inStudyMode || reviewingKifu) return;
-        var data = rules.ExportState();
-        data.phase = (int)GoPhase.Play;
-        data.passes = 0;
-        data.result = null;
-        data.dead = new int[0];
-        string json = JsonUtility.ToJson(data);
-        PlayerPrefs.SetString(StudySaveKey, json);
-        PlayerPrefs.Save();
-        try { System.IO.File.WriteAllText(StudySavePath, json); }
-        catch { }
+        if (!GoSaveManager.SaveStudyProgress(rules, out string err))
+        {
+            Debug.LogWarning("自动保存打谱进度失败: " + err);
+        }
     }
 
     void ReturnToMainMenu()
@@ -259,6 +341,18 @@ public class GoGame : MonoBehaviour
         HideScorePopup();
         if (reviewingKifu)
         {
+            if (isAnalyzingFullGame) { GoKataGo.CancelAnalysis(); isAnalyzingFullGame = false; }
+            if (fullAnalysisCo != null) { StopCoroutine(fullAnalysisCo); fullAnalysisCo = null; }
+            if (curAnalysisCo != null) { StopCoroutine(curAnalysisCo); curAnalysisCo = null; }
+            inBranchMode = false;
+            curBranchIdx = -1;
+            curBranchStepIdx = -1;
+            activeMarkTool = GoMarkType.None;
+            SyncMarkToolButtons();
+            if (ghostMarkSr != null) ghostMarkSr.enabled = false;
+            if (boardMarks != null) System.Array.Clear(boardMarks, 0, boardMarks.Length);
+            HideCandidateBadges();
+            if (commentModuleRoot != null) commentModuleRoot.SetActive(false);
             reviewingKifu = false;
             inStudyMode = false;
             vsAI = false;
@@ -271,6 +365,7 @@ public class GoGame : MonoBehaviour
         inStudyMode = false;
         vsAI = false;
         aiBusy = false;
+        aiController?.Cancel();
         StopAllCoroutines();
         GoKataGo.Shutdown();
         ShowMainMenu();
@@ -350,69 +445,52 @@ public class GoGame : MonoBehaviour
 
     IEnumerator AiTurn()
     {
-        aiBusy = true; Refresh();
+        if (aiController == null) aiController = gameObject.AddComponent<GoAiController>();
+        aiBusy = true;
+        Refresh();
         yield return null;
-        bool played = false;
-        if (opponentChoice == 1)
+
+        GoMoveResult result = null;
+        string notice = null;
+
+        yield return aiController.RequestAiMove(
+            rules,
+            aiColor,
+            opponentChoice,
+            boardSize,
+            handicap,
+            HandicapPoints,
+            (res, fallback) =>
+            {
+                result = res;
+                notice = fallback;
+            });
+
+        if (!string.IsNullOrEmpty(notice)) Flash(notice);
+
+        if (result != null && result.success)
         {
-            yield return GoKataGo.GenMove(rules, aiColor, handicap, HandicapPoints);
-            if (GoKataGo.LastError == null)
+            if (result.isResign)
             {
-                played = true;
-                if (GoKataGo.ResultIsResign)
-                {
-                    rules.ResignBy(aiColor);
-                    ShowResultPopup(rules.Result);
-                }
-                else if (GoKataGo.ResultIsPass)
-                {
-                    rules.Pass();
-                    Flash(rules.Phase == GoPhase.Scoring ? "双方停一手，进入数子" : "KataGo 停一手");
-                }
-                else if (!rules.Play(GoKataGo.ResultX, GoKataGo.ResultY, out string msg))
-                {
-                    played = false;
-                    Flash(msg);
-                }
-            }
-            else Flash("KataGo 失败，改用本地引擎：" + GoKataGo.LastError);
-        }
-        else if (opponentChoice == 2 && GoLlmAi.IsConfigured())
-        {
-            yield return GoLlmAi.RequestMove(rules, aiColor);
-            if (GoLlmAi.LastError == null)
-            {
-                played = true;
-                if (GoLlmAi.ResultIsPass)
-                {
-                    rules.Pass();
-                    Flash(rules.Phase == GoPhase.Scoring ? "双方停一手，进入数子" : "电脑停一手");
-                }
-                else if (!rules.Play(GoLlmAi.ResultX, GoLlmAi.ResultY, out string msg))
-                {
-                    played = false;
-                    Flash(msg);
-                }
-            }
-            else Flash("大模型失败，改用本地引擎：" + GoLlmAi.LastError);
-        }
-        if (!played)
-        {
-            float budget = boardSize <= 9 ? 2.0f : boardSize <= 13 ? 3.2f : 4.2f;
-            GoAI.BeginSearch(rules, aiColor, budget);
-            while (!GoAI.SearchDone) yield return null;
-            if (GoAI.ResultIsPass)
-            {
-                rules.Pass();
-                Flash(rules.Phase == GoPhase.Scoring ? "双方停一手，进入数子" : "AI 停一手");
-            }
-            else if (GoAI.BestWinRate < 0.18 && rules.MoveCount > 80)
-            {
-                rules.Resign();
+                rules.ResignBy(aiColor);
                 ShowResultPopup(rules.Result);
             }
-            else rules.Play(GoAI.ResultX, GoAI.ResultY, out _);
+            else if (result.isPass)
+            {
+                rules.Pass();
+                string who = opponentChoice == 1 ? "KataGo" : opponentChoice == 2 ? "电脑" : "AI";
+                Flash(rules.Phase == GoPhase.Scoring ? "双方停一手，进入数子" : who + " 停一手");
+            }
+            else if (!rules.Play(result.x, result.y, out string msg))
+            {
+                Flash(msg);
+            }
         }
+        else if (result != null && !string.IsNullOrEmpty(result.error))
+        {
+            Flash("AI 无法落子: " + result.error);
+        }
+
         aiBusy = false;
         Refresh();
     }
@@ -421,6 +499,7 @@ public class GoGame : MonoBehaviour
     {
         if (reviewingKifu) { ReviewSeek(reviewPly - 1); return; }
         if (aiBusy || inMenu) return;
+        aiController?.Cancel();
         int steps = vsAI ? 2 : 1;
         if (!rules.Undo(steps)) { Flash("没有可悔的棋"); return; }
         Flash("已悔棋");
@@ -429,15 +508,7 @@ public class GoGame : MonoBehaviour
             StartCoroutine(AiTurn());
     }
 
-    static int[] HandicapPoints(int n, int k)
-    {
-        int[] s = StarPoints(n);
-        // 让子顺序：右上、左下、左上、右下、天元、上边、下边、左边、右边
-        int[,] grid = { { 2, 2 }, { 0, 0 }, { 0, 2 }, { 2, 0 }, { 1, 1 }, { 1, 2 }, { 1, 0 }, { 0, 1 }, { 2, 1 } };
-        var pts = new int[k];
-        for (int i = 0; i < k; i++) pts[i] = s[grid[i, 0]] + s[grid[i, 1]] * n;
-        return pts;
-    }
+    static int[] HandicapPoints(int n, int k) => GoRules.HandicapPoints(n, k);
 
     /* ---------------- 输入 ---------------- */
 
@@ -447,6 +518,7 @@ public class GoGame : MonoBehaviour
         if (inMenu)
         {
             if (ghostSr != null) ghostSr.enabled = false;
+            if (ghostMarkSr != null) ghostMarkSr.enabled = false;
             return;
         }
         Vector3 w = cam.ScreenToWorldPoint(Input.mousePosition);
@@ -464,6 +536,77 @@ public class GoGame : MonoBehaviour
             ghostSr.sprite = rules.Turn == GoRules.BLACK ? stoneBlack : stoneWhite;
             ghostSr.transform.position = new Vector3(x, y, 0f);
         }
+
+        if (inside && !overUI && reviewingKifu)
+        {
+            if (activeMarkTool != GoMarkType.None)
+            {
+                ghostSr.enabled = false;
+                if (ghostMarkSr != null)
+                {
+                    ghostMarkSr.enabled = true;
+                    ghostMarkSr.sprite = GetMarkSprite(activeMarkTool);
+                    ghostMarkSr.transform.position = new Vector3(x, y, 0f);
+                    int stone = rules.Board[rules.Idx(x, y)];
+                    ghostMarkSr.color = GetGhostMarkColor(stone);
+                }
+            }
+            else
+            {
+                if (ghostMarkSr != null) ghostMarkSr.enabled = false;
+                bool canReviewHover = rules.Board[rules.Idx(x, y)] == GoRules.EMPTY;
+                ghostSr.enabled = canReviewHover;
+                if (canReviewHover)
+                {
+                    ghostSr.sprite = rules.Turn == GoRules.BLACK ? stoneBlack : stoneWhite;
+                    ghostSr.transform.position = new Vector3(x, y, 0f);
+                }
+            }
+
+            if (activeCandCount > 0 && curPosAnalysis != null && curPosAnalysis.candidates != null && curPosAnalysis.candidates.Count > 0)
+            {
+                int hovered = -1;
+                int targetIdx = rules.Idx(x, y);
+                for (int i = 0; i < activeCandCount; i++)
+                {
+                    if (candIdxs[i] == targetIdx) { hovered = i; break; }
+                }
+                int wanted = hovered >= 0 ? hovered : 0;
+                if (wanted != hoveredCandidateIdx)
+                {
+                    hoveredCandidateIdx = wanted;
+                    ShowPv(curPosAnalysis.candidates[wanted]);
+                    UpdateCandidateDetailText(curPosAnalysis.candidates[wanted]);
+                }
+            }
+
+            if (Input.GetMouseButtonDown(0))
+            {
+                if (activeMarkTool != GoMarkType.None)
+                {
+                    ToggleMarkAt(x, y, activeMarkTool);
+                }
+                else
+                {
+                    if (rules.Board[rules.Idx(x, y)] == GoRules.EMPTY)
+                    {
+                        PlayBranchMove(x, y);
+                    }
+                }
+            }
+            else if (Input.GetMouseButtonDown(1))
+            {
+                int targetIdx = rules.Idx(x, y);
+                if (boardMarks != null && targetIdx >= 0 && targetIdx < boardMarks.Length && boardMarks[targetIdx] != 0)
+                {
+                    RemoveMarkAt(x, y);
+                    Flash("已清除该位置标记");
+                }
+            }
+            return;
+        }
+
+        if (ghostMarkSr != null) ghostMarkSr.enabled = false;
 
         if (inside && !overUI && Input.GetMouseButtonDown(0) && !reviewingKifu)
         {
@@ -492,6 +635,11 @@ public class GoGame : MonoBehaviour
         deadSr = new SpriteRenderer[n, n];
         terrSr = new SpriteRenderer[n, n];
         moveNumMeshes = new TextMesh[n, n];
+        markSr = new SpriteRenderer[n, n];
+        if (boardMarks == null || boardMarks.Length != n * n)
+        {
+            boardMarks = new int[n * n];
+        }
         for (int y = 0; y < n; y++)
         for (int x = 0; x < n; x++)
         {
@@ -519,6 +667,14 @@ public class GoGame : MonoBehaviour
             tsr.sortingOrder = 1;
             tsr.enabled = false;
             terrSr[x, y] = tsr;
+
+            var mo = new GameObject("mark");
+            mo.transform.SetParent(so.transform, false);
+            mo.transform.localPosition = Vector3.zero;
+            var msr = mo.AddComponent<SpriteRenderer>();
+            msr.sortingOrder = 5;
+            msr.enabled = false;
+            markSr[x, y] = msr;
 
             var numGo = new GameObject("MoveNum");
             numGo.transform.SetParent(so.transform, false);
@@ -552,6 +708,13 @@ public class GoGame : MonoBehaviour
         ghostSr.color = new Color(1f, 1f, 1f, 0.45f);
         ghostSr.enabled = false;
 
+        var gm = new GameObject("GhostMark");
+        gm.transform.SetParent(boardRoot, false);
+        gm.transform.localScale = Vector3.one * 0.94f;
+        ghostMarkSr = gm.AddComponent<SpriteRenderer>();
+        ghostMarkSr.sortingOrder = 5;
+        ghostMarkSr.enabled = false;
+
         var mk = new GameObject("Marker");
         mk.transform.SetParent(boardRoot, false);
         markerSr = mk.AddComponent<SpriteRenderer>();
@@ -562,14 +725,11 @@ public class GoGame : MonoBehaviour
         cam.orthographicSize = (n + 1) / 2f + 0.7f;
         cam.transform.position = new Vector3((n - 1) / 2f, (n - 1) / 2f, -10f);
         BuildStudyBoardLabels(n);
+        BuildAnalysisOverlays();
+        UpdateBoardMarksVisuals();
     }
 
-    static int[] StarPoints(int n)
-    {
-        if (n == 19) return new[] { 3, 9, 15 };
-        if (n == 13) return new[] { 3, 6, 9 };
-        return new[] { 2, 4, 6 };
-    }
+    static int[] StarPoints(int n) => GoRules.StarPoints(n);
 
     static void FillRect(Color32[] px, int res, int x0, int y0, int x1, int y1, Color32 c)
     {
@@ -702,6 +862,243 @@ public class GoGame : MonoBehaviour
         return Sprite.Create(tex, new Rect(0, 0, s, s), new Vector2(0.5f, 0.5f), s);
     }
 
+    static float DistToSegment(Vector2 p, Vector2 a, Vector2 b)
+    {
+        Vector2 ab = b - a;
+        float l2 = ab.sqrMagnitude;
+        if (l2 < 1e-6f) return Vector2.Distance(p, a);
+        float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / l2);
+        Vector2 proj = a + t * ab;
+        return Vector2.Distance(p, proj);
+    }
+
+    Sprite MakeMarkCrossSprite()
+    {
+        int s = 128;
+        float cx = s * 0.5f, cy = s * 0.5f;
+        float d = s * 0.28f;
+        Vector2 a1 = new Vector2(cx - d, cy - d), b1 = new Vector2(cx + d, cy + d);
+        Vector2 a2 = new Vector2(cx - d, cy + d), b2 = new Vector2(cx + d, cy - d);
+        float hw = s * 0.045f;
+        var px = new Color32[s * s];
+        for (int y = 0; y < s; y++)
+        for (int x = 0; x < s; x++)
+        {
+            Vector2 p = new Vector2(x + 0.5f, y + 0.5f);
+            float dist = Mathf.Min(DistToSegment(p, a1, b1), DistToSegment(p, a2, b2));
+            float alpha = Mathf.Clamp01(hw + 0.8f - dist);
+            px[y * s + x] = new Color32(255, 255, 255, (byte)(255 * alpha));
+        }
+        var tex = new Texture2D(s, s, TextureFormat.RGBA32, false);
+        tex.filterMode = FilterMode.Bilinear;
+        tex.SetPixels32(px); tex.Apply(false, false);
+        return Sprite.Create(tex, new Rect(0, 0, s, s), new Vector2(0.5f, 0.5f), s);
+    }
+
+    Sprite MakeMarkTriangleSprite()
+    {
+        int s = 128;
+        float cx = s * 0.5f, cy = s * 0.46f;
+        float r = s * 0.32f;
+        Vector2 p0 = new Vector2(cx, cy + r * 1.05f);
+        Vector2 p1 = new Vector2(cx - r * 0.90f, cy - r * 0.52f);
+        Vector2 p2 = new Vector2(cx + r * 0.90f, cy - r * 0.52f);
+        float hw = s * 0.045f;
+        var px = new Color32[s * s];
+        for (int y = 0; y < s; y++)
+        for (int x = 0; x < s; x++)
+        {
+            Vector2 p = new Vector2(x + 0.5f, y + 0.5f);
+            float dist = Mathf.Min(DistToSegment(p, p0, p1), Mathf.Min(DistToSegment(p, p1, p2), DistToSegment(p, p2, p0)));
+            float alpha = Mathf.Clamp01(hw + 0.8f - dist);
+            px[y * s + x] = new Color32(255, 255, 255, (byte)(255 * alpha));
+        }
+        var tex = new Texture2D(s, s, TextureFormat.RGBA32, false);
+        tex.filterMode = FilterMode.Bilinear;
+        tex.SetPixels32(px); tex.Apply(false, false);
+        return Sprite.Create(tex, new Rect(0, 0, s, s), new Vector2(0.5f, 0.5f), s);
+    }
+
+    Sprite MakeMarkSquareSprite()
+    {
+        int s = 128;
+        float cx = s * 0.5f, cy = s * 0.5f;
+        float hs = s * 0.25f;
+        Vector2 p0 = new Vector2(cx - hs, cy - hs);
+        Vector2 p1 = new Vector2(cx + hs, cy - hs);
+        Vector2 p2 = new Vector2(cx + hs, cy + hs);
+        Vector2 p3 = new Vector2(cx - hs, cy + hs);
+        float hw = s * 0.045f;
+        var px = new Color32[s * s];
+        for (int y = 0; y < s; y++)
+        for (int x = 0; x < s; x++)
+        {
+            Vector2 p = new Vector2(x + 0.5f, y + 0.5f);
+            float dist = Mathf.Min(
+                Mathf.Min(DistToSegment(p, p0, p1), DistToSegment(p, p1, p2)),
+                Mathf.Min(DistToSegment(p, p2, p3), DistToSegment(p, p3, p0))
+            );
+            float alpha = Mathf.Clamp01(hw + 0.8f - dist);
+            px[y * s + x] = new Color32(255, 255, 255, (byte)(255 * alpha));
+        }
+        var tex = new Texture2D(s, s, TextureFormat.RGBA32, false);
+        tex.filterMode = FilterMode.Bilinear;
+        tex.SetPixels32(px); tex.Apply(false, false);
+        return Sprite.Create(tex, new Rect(0, 0, s, s), new Vector2(0.5f, 0.5f), s);
+    }
+
+    Sprite MakeMarkCircleSprite()
+    {
+        int s = 128;
+        float cx = s * 0.5f, cy = s * 0.5f;
+        float r0 = s * 0.26f;
+        float hw = s * 0.045f;
+        var px = new Color32[s * s];
+        for (int y = 0; y < s; y++)
+        for (int x = 0; x < s; x++)
+        {
+            Vector2 p = new Vector2(x + 0.5f, y + 0.5f);
+            float dist = Mathf.Abs(Vector2.Distance(p, new Vector2(cx, cy)) - r0);
+            float alpha = Mathf.Clamp01(hw + 0.8f - dist);
+            px[y * s + x] = new Color32(255, 255, 255, (byte)(255 * alpha));
+        }
+        var tex = new Texture2D(s, s, TextureFormat.RGBA32, false);
+        tex.filterMode = FilterMode.Bilinear;
+        tex.SetPixels32(px); tex.Apply(false, false);
+        return Sprite.Create(tex, new Rect(0, 0, s, s), new Vector2(0.5f, 0.5f), s);
+    }
+
+    Sprite GetMarkSprite(GoMarkType type)
+    {
+        switch (type)
+        {
+            case GoMarkType.Cross: return markCrossSpr;
+            case GoMarkType.Triangle: return markTriangleSpr;
+            case GoMarkType.Square: return markSquareSpr;
+            case GoMarkType.Circle: return markCircleSpr;
+            default: return null;
+        }
+    }
+
+    Color GetMarkColor(int stoneColor)
+    {
+        if (stoneColor == GoRules.BLACK) return new Color(1f, 1f, 1f, 0.95f);
+        if (stoneColor == GoRules.WHITE) return new Color(0.10f, 0.08f, 0.06f, 0.95f);
+        return new Color(0.88f, 0.22f, 0.16f, 0.95f);
+    }
+
+    Color GetGhostMarkColor(int stoneColor)
+    {
+        if (stoneColor == GoRules.BLACK) return new Color(1f, 1f, 1f, 0.55f);
+        if (stoneColor == GoRules.WHITE) return new Color(0.10f, 0.08f, 0.06f, 0.55f);
+        return new Color(0.88f, 0.22f, 0.16f, 0.55f);
+    }
+
+    void SelectMarkTool(GoMarkType tool)
+    {
+        if (activeMarkTool == tool)
+        {
+            activeMarkTool = GoMarkType.None;
+            Flash("已切换为【落子推演】模式");
+        }
+        else
+        {
+            activeMarkTool = tool;
+            if (tool == GoMarkType.None) Flash("已切换为【落子推演】模式");
+            else if (tool == GoMarkType.Cross) Flash("已选择【✕ 标记】工具，点击棋子可作标记");
+            else if (tool == GoMarkType.Triangle) Flash("已选择【▲ 标记】工具，点击棋子可作标记");
+            else if (tool == GoMarkType.Square) Flash("已选择【■ 标记】工具，点击棋子可作标记");
+            else if (tool == GoMarkType.Circle) Flash("已选择【● 标记】工具，点击棋子可作标记");
+        }
+        SyncMarkToolButtons();
+    }
+
+    void SyncMarkToolButtons()
+    {
+        for (int i = 0; i < optMarkButtons.Count; i++)
+        {
+            var btn = optMarkButtons[i];
+            if (btn == null) continue;
+            var img = btn.GetComponent<Image>();
+            if (img == null) continue;
+            bool selected = (int)activeMarkTool == i;
+            img.color = selected ? Accent : BtnBg;
+            var txt = btn.GetComponentInChildren<Text>();
+            if (txt != null)
+            {
+                txt.color = selected ? new Color(0.12f, 0.09f, 0.05f) : Ink;
+            }
+        }
+    }
+
+    void ToggleMarkAt(int x, int y, GoMarkType type)
+    {
+        if (rules == null || boardMarks == null) return;
+        int idx = rules.Idx(x, y);
+        if (idx < 0 || idx >= boardMarks.Length) return;
+
+        if (boardMarks[idx] == (int)type)
+        {
+            boardMarks[idx] = 0;
+        }
+        else
+        {
+            boardMarks[idx] = (int)type;
+        }
+        UpdateBoardMarksVisuals();
+        RefreshStudyVisuals();
+    }
+
+    void RemoveMarkAt(int x, int y)
+    {
+        if (rules == null || boardMarks == null) return;
+        int idx = rules.Idx(x, y);
+        if (idx < 0 || idx >= boardMarks.Length) return;
+
+        if (boardMarks[idx] != 0)
+        {
+            boardMarks[idx] = 0;
+            UpdateBoardMarksVisuals();
+            RefreshStudyVisuals();
+        }
+    }
+
+    void ClearAllMarks()
+    {
+        if (boardMarks != null)
+        {
+            System.Array.Clear(boardMarks, 0, boardMarks.Length);
+        }
+        UpdateBoardMarksVisuals();
+        RefreshStudyVisuals();
+        Flash("已清空所有标记");
+    }
+
+    void UpdateBoardMarksVisuals()
+    {
+        if (markSr == null || rules == null || boardMarks == null) return;
+        int n = boardSize;
+        for (int y = 0; y < n; y++)
+        for (int x = 0; x < n; x++)
+        {
+            int i = rules.Idx(x, y);
+            int markVal = (i < boardMarks.Length) ? boardMarks[i] : 0;
+            var sr = markSr[x, y];
+            if (sr == null) continue;
+            if (markVal == 0)
+            {
+                sr.enabled = false;
+            }
+            else
+            {
+                sr.enabled = true;
+                sr.sprite = GetMarkSprite((GoMarkType)markVal);
+                int stone = rules.Board[i];
+                sr.color = GetMarkColor(stone);
+            }
+        }
+    }
+
     /* ---------------- 对局面板 ---------------- */
 
     void BuildUI()
@@ -730,12 +1127,12 @@ public class GoGame : MonoBehaviour
         prt.anchorMin = new Vector2(1f, 0f);
         prt.anchorMax = new Vector2(1f, 1f);
         prt.pivot = new Vector2(1f, 0.5f);
-        prt.sizeDelta = new Vector2(268f, -72f);
-        prt.anchoredPosition = new Vector2(-36f, 0f);
+        prt.sizeDelta = new Vector2(280f, -48f);
+        prt.anchoredPosition = new Vector2(-28f, 0f);
 
         var vlg = pgo.AddComponent<VerticalLayoutGroup>();
-        vlg.padding = new RectOffset(14, 14, 16, 16);
-        vlg.spacing = 8f;
+        vlg.padding = new RectOffset(12, 12, 14, 14);
+        vlg.spacing = 6f;
         vlg.childAlignment = TextAnchor.UpperCenter;
         vlg.childControlWidth = true;
         vlg.childControlHeight = true;
@@ -743,22 +1140,18 @@ public class GoGame : MonoBehaviour
         vlg.childForceExpandHeight = false;
         var pt = pgo.transform;
 
-        MakeText(pt, "落子记录", 16, Dim, TextAnchor.MiddleCenter);
+        MakeText(pt, "落子记录与变化推演", 15, Dim, TextAnchor.MiddleCenter);
         BuildMoveLogScroll(pt);
-        turnText = MakeText(pt, "", 15, Ink, TextAnchor.MiddleCenter);
-        msgText = MakeText(pt, "", 15, Accent, TextAnchor.MiddleCenter);
+        BuildCommentModuleUi(pt);
+        turnText = MakeText(pt, "", 14, Ink, TextAnchor.MiddleCenter);
+        msgText = MakeText(pt, "", 14, Accent, TextAnchor.MiddleCenter);
 
         btnUndo = MakeButton(pt, "悔棋", 42f, Undo).gameObject;
         btnPass = MakeButton(pt, "停一手", 42f, HumanPass).gameObject;
         btnResign = MakeButton(pt, "认输", 42f, HumanResign).gameObject;
         btnClear = MakeButton(pt, "清空棋盘", 42f, ClearBoardKeepPlaying).gameObject;
         btnScore = MakeButton(pt, "数目", 42f, OpenScorePopup).gameObject;
-        btnReviewPrev = MakeButton(pt, "上一手", 42f, () => ReviewSeek(reviewPly - 1)).gameObject;
-        btnReviewNext = MakeButton(pt, "下一手", 42f, () => ReviewSeek(reviewPly + 1)).gameObject;
-        btnReviewEnd = MakeButton(pt, "终局", 42f, () => ReviewSeek(reviewTotal)).gameObject;
-        btnReviewPrev.SetActive(false);
-        btnReviewNext.SetActive(false);
-        btnReviewEnd.SetActive(false);
+        BuildReviewAiUi(pt);
         var home = MakeButton(pt, "返回主界面", 42f, ReturnToMainMenu);
         homeBtnLabel = home.GetComponentInChildren<Text>();
 
@@ -773,7 +1166,8 @@ public class GoGame : MonoBehaviour
         scrollGo.transform.SetParent(parent, false);
         var le = scrollGo.AddComponent<LayoutElement>();
         le.flexibleHeight = 1f;
-        le.minHeight = 180f;
+        le.minHeight = 110f;
+        le.preferredHeight = 150f;
         var bg = scrollGo.AddComponent<Image>();
         bg.color = new Color(0.08f, 0.06f, 0.04f, 0.95f);
         var scroll = scrollGo.AddComponent<ScrollRect>();
@@ -812,6 +1206,334 @@ public class GoGame : MonoBehaviour
         moveLogScroll = scroll;
         scroll.viewport = vrt;
         scroll.content = crt;
+    }
+
+    void BuildCommentModuleUi(Transform parent)
+    {
+        commentModuleRoot = new GameObject("CommentModule");
+        commentModuleRoot.transform.SetParent(parent, false);
+        var vlg = commentModuleRoot.AddComponent<VerticalLayoutGroup>();
+        vlg.spacing = 3f;
+        vlg.childControlWidth = true;
+        vlg.childControlHeight = true;
+        vlg.childForceExpandWidth = true;
+        vlg.childForceExpandHeight = false;
+        var le = commentModuleRoot.AddComponent<LayoutElement>();
+        le.preferredHeight = 78f;
+        le.minHeight = 78f;
+
+        var headerRow = new GameObject("CommentHeader");
+        headerRow.transform.SetParent(commentModuleRoot.transform, false);
+        var hlg = headerRow.AddComponent<HorizontalLayoutGroup>();
+        hlg.spacing = 4f;
+        hlg.childControlWidth = true;
+        hlg.childControlHeight = true;
+        hlg.childForceExpandWidth = false;
+        hlg.childForceExpandHeight = true;
+        var hle = headerRow.AddComponent<LayoutElement>();
+        hle.preferredHeight = 22f;
+
+        commentModuleTitle = MakeText(headerRow.transform, "📝 批注：实战", 12, Ink, TextAnchor.MiddleLeft);
+        var tLe = commentModuleTitle.gameObject.AddComponent<LayoutElement>();
+        tLe.flexibleWidth = 1f;
+        tLe.minWidth = 110f;
+
+        commentSaveIndicator = MakeText(headerRow.transform, "", 11, new Color(0.45f, 0.82f, 0.45f), TextAnchor.MiddleRight);
+        var iLe = commentSaveIndicator.gameObject.AddComponent<LayoutElement>();
+        iLe.preferredWidth = 45f;
+
+        var btnSave = MakeButton(headerRow.transform, "保存", 22f, OnCommentSaveClicked);
+        var sLe = btnSave.GetComponent<LayoutElement>();
+        sLe.preferredWidth = 38f;
+        sLe.flexibleWidth = 0f;
+        var saveImg = btnSave.GetComponent<Image>();
+        if (saveImg != null) saveImg.color = new Color(0.18f, 0.38f, 0.22f, 1f);
+
+        var btnClear = MakeButton(headerRow.transform, "清空", 22f, OnCommentClearClicked);
+        var cLe = btnClear.GetComponent<LayoutElement>();
+        cLe.preferredWidth = 38f;
+        cLe.flexibleWidth = 0f;
+        var clearImg = btnClear.GetComponent<Image>();
+        if (clearImg != null) clearImg.color = new Color(0.35f, 0.16f, 0.14f, 1f);
+
+        var inputGo = new GameObject("CommentInputField");
+        inputGo.transform.SetParent(commentModuleRoot.transform, false);
+        var inputLe = inputGo.AddComponent<LayoutElement>();
+        inputLe.preferredHeight = 52f;
+        inputLe.minHeight = 52f;
+        inputLe.flexibleWidth = 1f;
+        var bg = inputGo.AddComponent<Image>();
+        bg.color = new Color(0.09f, 0.07f, 0.05f, 0.95f);
+
+        var ifComp = inputGo.AddComponent<InputField>();
+        ifComp.lineType = InputField.LineType.MultiLineNewline;
+        ifComp.selectionColor = new Color(0.88f, 0.66f, 0.25f, 0.4f);
+
+        var textGo = new GameObject("Text");
+        textGo.transform.SetParent(inputGo.transform, false);
+        var trt = textGo.AddComponent<RectTransform>();
+        trt.anchorMin = Vector2.zero;
+        trt.anchorMax = Vector2.one;
+        trt.offsetMin = new Vector2(6f, 4f);
+        trt.offsetMax = new Vector2(-6f, -4f);
+        var textComp = textGo.AddComponent<Text>();
+        textComp.font = font;
+        textComp.fontSize = 12;
+        textComp.color = Ink;
+        textComp.supportRichText = false;
+        textComp.alignment = TextAnchor.UpperLeft;
+
+        var phGo = new GameObject("Placeholder");
+        phGo.transform.SetParent(inputGo.transform, false);
+        var phrt = phGo.AddComponent<RectTransform>();
+        phrt.anchorMin = Vector2.zero;
+        phrt.anchorMax = Vector2.one;
+        phrt.offsetMin = new Vector2(6f, 4f);
+        phrt.offsetMax = new Vector2(-6f, -4f);
+        var phComp = phGo.AddComponent<Text>();
+        phComp.font = font;
+        phComp.fontSize = 12;
+        phComp.color = new Color(0.5f, 0.45f, 0.38f, 0.7f);
+        phComp.text = "在此输入当前步的分析与批注…";
+        phComp.fontStyle = FontStyle.Italic;
+        phComp.alignment = TextAnchor.UpperLeft;
+
+        ifComp.textComponent = textComp;
+        ifComp.placeholder = phComp;
+        ifComp.onEndEdit.AddListener(text => SaveCurrentComment(text));
+
+        commentInputField = ifComp;
+        commentModuleRoot.SetActive(false);
+    }
+
+    void SyncCommentModule()
+    {
+        if (commentInputField == null || commentModuleTitle == null) return;
+
+        if (inBranchMode && curBranchIdx >= 0 && curBranchIdx < reviewBranches.Count)
+        {
+            var br = reviewBranches[curBranchIdx];
+            int stepIdx = (curBranchStepIdx >= 0 && curBranchStepIdx < br.steps.Count) ? curBranchStepIdx : (br.steps.Count - 1);
+            if (stepIdx >= 0 && stepIdx < br.steps.Count)
+            {
+                var st = br.steps[stepIdx];
+                string who = st.color == GoRules.BLACK ? "黑" : "白";
+                string coord = st.isPass ? "停一手" : GoKataGo.Coord(st.x, st.y);
+                commentModuleTitle.text = $"📝 批注：{br.name} 第{st.step}步（{who}{coord}）";
+                commentInputField.text = st.comment ?? "";
+            }
+            else
+            {
+                commentModuleTitle.text = $"📝 批注：{br.name}（起始前）";
+                commentInputField.text = br.branchComment ?? "";
+            }
+        }
+        else
+        {
+            commentModuleTitle.text = reviewPly == 0 ? "📝 批注：开局局面" : $"📝 批注：实战第 {reviewPly} 手";
+            if (moveComments.TryGetValue(reviewPly, out string c))
+                commentInputField.text = c ?? "";
+            else
+                commentInputField.text = "";
+        }
+    }
+
+    void OnCommentSaveClicked()
+    {
+        if (commentInputField == null) return;
+        SaveCurrentComment(commentInputField.text);
+        ShowCommentSaveTip("已保存");
+    }
+
+    void OnCommentClearClicked()
+    {
+        if (commentInputField != null) commentInputField.text = "";
+        SaveCurrentComment("");
+        ShowCommentSaveTip("已清空");
+    }
+
+    void SaveCurrentComment(string text)
+    {
+        text = (text ?? "").Trim();
+        if (inBranchMode && curBranchIdx >= 0 && curBranchIdx < reviewBranches.Count)
+        {
+            var br = reviewBranches[curBranchIdx];
+            int stepIdx = (curBranchStepIdx >= 0 && curBranchStepIdx < br.steps.Count) ? curBranchStepIdx : (br.steps.Count - 1);
+            if (stepIdx >= 0 && stepIdx < br.steps.Count)
+            {
+                br.steps[stepIdx].comment = text;
+            }
+            else
+            {
+                br.branchComment = text;
+            }
+        }
+        else
+        {
+            if (string.IsNullOrEmpty(text))
+                moveComments.Remove(reviewPly);
+            else
+                moveComments[reviewPly] = text;
+        }
+
+        SaveReviewCommentsAndBranches();
+        RefreshReviewMoveLog();
+    }
+
+    void ShowCommentSaveTip(string tip)
+    {
+        if (commentSaveIndicator == null) return;
+        commentSaveIndicator.text = tip;
+        if (commentSaveTipCo != null) StopCoroutine(commentSaveTipCo);
+        commentSaveTipCo = StartCoroutine(DoHideCommentSaveTip());
+    }
+
+    IEnumerator DoHideCommentSaveTip()
+    {
+        yield return new WaitForSeconds(2.5f);
+        if (commentSaveIndicator != null) commentSaveIndicator.text = "";
+        commentSaveTipCo = null;
+    }
+
+    void SaveReviewCommentsAndBranches()
+    {
+        if (reviewRec == null) return;
+
+        var cData = new MoveCommentsData();
+        foreach (var kvp in moveComments)
+        {
+            if (!string.IsNullOrEmpty(kvp.Value))
+                cData.items.Add(new MoveCommentItem { ply = kvp.Key, text = kvp.Value });
+        }
+        string commentsJson = cData.items.Count > 0 ? JsonUtility.ToJson(cData) : "";
+
+        var bData = new MoveBranchesCatalog();
+        bData.branches.AddRange(reviewBranches);
+        string branchesJson = reviewBranches.Count > 0 ? JsonUtility.ToJson(bData) : "";
+
+        reviewRec.commentsJson = commentsJson;
+        reviewRec.branchesJson = branchesJson;
+        KifuDatabase.UpdateCommentsAndBranches(reviewRec.id, commentsJson, branchesJson);
+    }
+
+    void NewVariation()
+    {
+        if (!reviewingKifu) return;
+        if (inBranchMode)
+        {
+            ExitBranchMode();
+        }
+
+        var br = new MoveBranchData
+        {
+            branchId = reviewBranches.Count + 1,
+            name = $"变化 {reviewBranches.Count + 1}",
+            startPly = reviewPly,
+            isExpanded = true,
+            steps = new List<BranchStepData>()
+        };
+        reviewBranches.Add(br);
+        curBranchIdx = reviewBranches.Count - 1;
+        curBranchStepIdx = -1;
+        inBranchMode = true;
+        branchPlyStart = reviewPly;
+        branchMoveCount = 0;
+        branchLastWinrate = curPosAnalysis != null ? curPosAnalysis.blackWinrate 
+            : (gameAnalysis != null && reviewPly < gameAnalysis.blackWinrates.Length ? gameAnalysis.blackWinrates[reviewPly] : 0.5f);
+
+        if (btnExitBranch != null) btnExitBranch.SetActive(true);
+        if (btnBranchUndo != null) btnBranchUndo.SetActive(true);
+
+        Flash($"已新建【{br.name}】（以实战第 {reviewPly} 手为起点），请在盘面落子");
+        SyncCommentModule();
+        RefreshReviewMoveLog();
+        SaveReviewCommentsAndBranches();
+    }
+
+    void ToggleVariationsExpand()
+    {
+        if (reviewBranches.Count == 0)
+        {
+            Flash("暂无推演变化");
+            return;
+        }
+        bool anyCollapsed = reviewBranches.Exists(b => !b.isExpanded);
+        foreach (var b in reviewBranches) b.isExpanded = anyCollapsed;
+        RefreshReviewMoveLog();
+        Flash(anyCollapsed ? "已展开全部推演变化 [-]" : "已收起全部推演变化 [+]");
+    }
+
+    void CycleLoadVariation()
+    {
+        if (reviewBranches.Count == 0)
+        {
+            Flash("暂无推演变化，在盘面落子即可开启推演");
+            return;
+        }
+        int nextIdx = (curBranchIdx + 1) % reviewBranches.Count;
+        LoadVariation(nextIdx);
+    }
+
+    void LoadVariation(int idx)
+    {
+        if (idx < 0 || idx >= reviewBranches.Count) return;
+        var br = reviewBranches[idx];
+        if (curAnalysisCo != null) { StopCoroutine(curAnalysisCo); curAnalysisCo = null; }
+
+        ReviewSeek(br.startPly);
+
+        inBranchMode = true;
+        curBranchIdx = idx;
+        branchPlyStart = br.startPly;
+        branchMoveCount = 0;
+        rules.ResumeRecording();
+
+        for (int i = 0; i < br.steps.Count; i++)
+        {
+            var st = br.steps[i];
+            if (st.isPass) rules.Pass();
+            else rules.Play(st.x, st.y, out _);
+            branchMoveCount++;
+        }
+
+        curBranchStepIdx = br.steps.Count - 1;
+        branchLastWinrate = br.steps.Count > 0 ? br.steps[br.steps.Count - 1].winrate : -1f;
+
+        if (btnExitBranch != null) btnExitBranch.SetActive(true);
+        if (btnBranchUndo != null) btnBranchUndo.SetActive(true);
+
+        rules.EnsureMoveAtForDisplay();
+        Refresh();
+        Flash($"已载入【{br.name}】（第 {br.startPly} 手起 · 共 {br.steps.Count} 步推演）");
+    }
+
+    void DeleteCurrentVariation()
+    {
+        if (reviewBranches.Count == 0)
+        {
+            Flash("暂无可删除的变化");
+            return;
+        }
+        int delIdx = (curBranchIdx >= 0 && curBranchIdx < reviewBranches.Count) ? curBranchIdx : (reviewBranches.Count - 1);
+        string delName = reviewBranches[delIdx].name;
+
+        if (inBranchMode && curBranchIdx == delIdx)
+        {
+            ExitBranchMode();
+        }
+
+        reviewBranches.RemoveAt(delIdx);
+        for (int i = 0; i < reviewBranches.Count; i++)
+        {
+            reviewBranches[i].branchId = i + 1;
+            reviewBranches[i].name = $"变化 {i + 1}";
+        }
+
+        curBranchIdx = -1;
+        curBranchStepIdx = -1;
+        SaveReviewCommentsAndBranches();
+        RefreshReviewMoveLog();
+        Flash($"已删除【{delName}】");
     }
 
     void BuildScorePopup(Transform canvasRoot)
@@ -896,14 +1618,7 @@ public class GoGame : MonoBehaviour
     void WipeBoardState()
     {
         rules.Reset(boardSize);
-        PlayerPrefs.DeleteKey(StudySaveKey);
-        PlayerPrefs.Save();
-        try
-        {
-            if (System.IO.File.Exists(StudySavePath))
-                System.IO.File.Delete(StudySavePath);
-        }
-        catch { }
+        GoSaveManager.ClearStudySave();
     }
 
     void HumanResign()
@@ -1039,10 +1754,16 @@ public class GoGame : MonoBehaviour
             moveLogCsv = rules != null ? rules.ExportMoveLogCsv() : "",
             stateJson = rules != null ? JsonUtility.ToJson(rules.ExportState()) : ""
         };
-        KifuDatabase.Add(rec);
-        kifuForm.SetActive(false);
-        if (scorePopup != null) scorePopup.SetActive(false);
-        Flash("棋谱已保存");
+        if (KifuDatabase.TryAdd(rec, out string err))
+        {
+            kifuForm.SetActive(false);
+            if (scorePopup != null) scorePopup.SetActive(false);
+            Flash("棋谱已保存");
+        }
+        else
+        {
+            Flash("保存棋谱失败: " + err);
+        }
     }
 
     void BuildKifuForm(Transform canvasRoot)
@@ -1251,7 +1972,8 @@ public class GoGame : MonoBehaviour
                 int i = rules.Idx(x, y);
                 int stone = rules.Board[i];
                 int mv = rules.MoveAt[i];
-                if (!showMoveNums || stone == GoRules.EMPTY || mv <= 0)
+                bool hasMark = boardMarks != null && i < boardMarks.Length && boardMarks[i] != 0;
+                if (!showMoveNums || stone == GoRules.EMPTY || mv <= 0 || hasMark)
                 {
                     tm.gameObject.SetActive(false);
                     continue;
@@ -1526,6 +2248,37 @@ public class GoGame : MonoBehaviour
         inStudyMode = false;
         vsAI = false;
         aiBusy = false;
+        inBranchMode = false;
+        curBranchIdx = -1;
+        curBranchStepIdx = -1;
+        branchMoveCount = 0;
+        branchLastWinrate = -1f;
+        activeMarkTool = GoMarkType.None;
+        SyncMarkToolButtons();
+        if (boardMarks != null) System.Array.Clear(boardMarks, 0, boardMarks.Length);
+        if (btnExitBranch != null) btnExitBranch.SetActive(false);
+        if (btnBranchUndo != null) btnBranchUndo.SetActive(false);
+
+        moveComments.Clear();
+        if (!string.IsNullOrEmpty(rec.commentsJson))
+        {
+            var loadedC = JsonUtility.FromJson<MoveCommentsData>(rec.commentsJson);
+            if (loadedC != null && loadedC.items != null)
+            {
+                foreach (var item in loadedC.items)
+                    moveComments[item.ply] = item.text;
+            }
+        }
+
+        reviewBranches.Clear();
+        if (!string.IsNullOrEmpty(rec.branchesJson))
+        {
+            var loadedB = JsonUtility.FromJson<MoveBranchesCatalog>(rec.branchesJson);
+            if (loadedB != null && loadedB.branches != null)
+            {
+                reviewBranches.AddRange(loadedB.branches);
+            }
+        }
         StopAllCoroutines();
         boardSize = rec.boardSize > 0 ? rec.boardSize : 19;
         showMoveNums = true;
@@ -1534,6 +2287,22 @@ public class GoGame : MonoBehaviour
         if (reviewTotal <= 0 && rec.moveCount > 0) reviewTotal = rec.moveCount;
         reviewPly = reviewTotal;
         inMenu = false;
+
+        gameAnalysis = !string.IsNullOrEmpty(rec.analysisJson) ? KataGameAnalysis.FromJson(rec.analysisJson) : null;
+        curPosAnalysis = null;
+        hoveredCandidateIdx = -1;
+
+        if (GoKataGo.IsAvailable())
+        {
+            aiReviewEnabled = true;
+            if (btnAiReviewLabel != null) btnAiReviewLabel.text = "AI推演: 开";
+        }
+        else
+        {
+            aiReviewEnabled = false;
+            if (btnAiReviewLabel != null) btnAiReviewLabel.text = "AI推演: 关";
+        }
+
         if (historyDetail != null) historyDetail.SetActive(false);
         if (historyPanel != null) historyPanel.SetActive(false);
         menuCanvas.SetActive(false);
@@ -1546,6 +2315,16 @@ public class GoGame : MonoBehaviour
     void ReviewSeek(int ply)
     {
         if (!reviewingKifu || rules == null) return;
+        if (inBranchMode)
+        {
+            inBranchMode = false;
+            curBranchIdx = -1;
+            curBranchStepIdx = -1;
+            branchMoveCount = 0;
+            branchLastWinrate = -1f;
+            if (btnExitBranch != null) btnExitBranch.SetActive(false);
+            if (btnBranchUndo != null) btnBranchUndo.SetActive(false);
+        }
         if (ply < 0) ply = 0;
         if (ply > reviewTotal) ply = reviewTotal;
         reviewPly = ply;
@@ -1558,18 +2337,38 @@ public class GoGame : MonoBehaviour
         bool ok = rules.ReplayToPly(reviewLogCsv, reviewPly);
         if (!ok) Flash("棋谱部分着法无法复原");
 
+        rules.ResumeRecording();
         if (reviewPly >= reviewTotal && reviewRec != null && !string.IsNullOrEmpty(reviewRec.stateJson))
         {
             var data = JsonUtility.FromJson<GoStateData>(reviewRec.stateJson);
-            if (data != null && data.size == boardSize)
-                rules.ImportState(data);
-        }
-        else
-        {
-            rules.ResumeRecording();
+            if (data != null && data.dead != null && data.dead.Length > 0)
+            {
+                rules.Dead.Clear();
+                foreach (int d in data.dead) rules.Dead.Add(d);
+            }
         }
         rules.EnsureMoveAtForDisplay();
         Refresh();
+
+        DrawWinrateChart(reviewPly);
+        UpdateReviewInfoText(reviewPly);
+
+        if (gameAnalysis != null && gameAnalysis.blackWinrates != null && reviewPly < gameAnalysis.blackWinrates.Length)
+        {
+            float wr = gameAnalysis.blackWinrates[reviewPly];
+            float lead = gameAnalysis.blackScoreLeads[reviewPly];
+            float prevWr = reviewPly > 0 ? gameAnalysis.blackWinrates[reviewPly - 1] : wr;
+            UpdateWinrateBar(wr, lead, wr - prevWr);
+            branchLastWinrate = wr;
+        }
+        else
+        {
+            UpdateWinrateBar(0.5f, 0f, 0f);
+            branchLastWinrate = -1f;
+        }
+
+        if (aiReviewEnabled) RequestPositionAnalysis();
+        else HideCandidateBadges();
     }
 
     void RefreshReviewMoveLog()
@@ -1580,7 +2379,7 @@ public class GoGame : MonoBehaviour
             return;
         }
         var parts = reviewLogCsv.Split('|');
-        var sb = new System.Text.StringBuilder(reviewTotal * 28);
+        var sb = new System.Text.StringBuilder(reviewTotal * 28 + (reviewBranches.Count * 64));
         int shown = 0;
         for (int i = 0; i < parts.Length; i++)
         {
@@ -1591,17 +2390,64 @@ public class GoGame : MonoBehaviour
             int.TryParse(p[1], out int y);
             bool pass = x < 0;
             if (shown > 0) sb.Append('\n');
-            string mark = shown + 1 == reviewPly ? "▶ " : "   ";
-            if (pass) sb.Append($"{mark}第{shown + 1:000}棋停一手");
-            else sb.Append($"{mark}第{shown + 1:000}棋下在（{ColLabel(x)}，{RowLabel(y)}）");
+            string mark = (shown + 1 == reviewPly && !inBranchMode) ? "▶ " : "   ";
+            string commentIcon = (moveComments.ContainsKey(shown + 1) && !string.IsNullOrEmpty(moveComments[shown + 1])) ? " <color=#EAA83E>💬</color>" : "";
+            if (pass) sb.Append($"{mark}第{shown + 1:000}棋停一手{commentIcon}");
+            else sb.Append($"{mark}第{shown + 1:000}棋下在（{ColLabel(x)}，{RowLabel(y)}）{commentIcon}");
             shown++;
         }
+
+        if (reviewBranches.Count > 0 || inBranchMode)
+        {
+            sb.Append($"\n\n<color=#EAA83E>════ 推演变化 ({reviewBranches.Count}) ════</color>");
+            for (int b = 0; b < reviewBranches.Count; b++)
+            {
+                var br = reviewBranches[b];
+                bool isCurrent = inBranchMode && curBranchIdx == b;
+                string sign = br.isExpanded ? "[-] " : "[+] ";
+                string curTag = isCurrent ? " <color=#73D13D>[推演中]</color>" : "";
+                sb.Append($"\n<color=#F0B042><b>{sign}{br.name}</b>（第{br.startPly}手起 · {br.steps.Count}步）{curTag}</color>");
+                if (br.isExpanded)
+                {
+                    if (br.steps.Count == 0)
+                    {
+                        sb.Append("\n   <color=#888888>（暂无推演步数，在盘面落子开始）</color>");
+                    }
+                    for (int s = 0; s < br.steps.Count; s++)
+                    {
+                        var st = br.steps[s];
+                        string who = st.color == GoRules.BLACK ? "黑" : "白";
+                        string coord = st.isPass ? "停一手" : $"（{ColLabel(st.x)}，{RowLabel(st.y)}）";
+                        string wrStr = st.winrate >= 0 ? $" <color=#88C0D0>[{st.winrate * 100f:0.0}%]</color>" : "";
+                        string commStr = !string.IsNullOrEmpty(st.comment) ? $" <color=#EAA83E>💬{st.comment}</color>" : "";
+                        string stepMark = (isCurrent && s == curBranchStepIdx) ? " ▶ " : "   ";
+                        sb.Append($"\n<color=#D4AF37>{stepMark}{st.step}. {who}{coord}{wrStr}{commStr}</color>");
+                    }
+                }
+            }
+        }
+
+        if (btnCurBranchLabel != null)
+        {
+            if (curBranchIdx >= 0 && curBranchIdx < reviewBranches.Count)
+                btnCurBranchLabel.text = $"切换:{reviewBranches[curBranchIdx].name}";
+            else
+                btnCurBranchLabel.text = "切换变化";
+        }
+
         moveLogText.text = sb.ToString();
         if (moveLogScroll != null)
         {
             Canvas.ForceUpdateCanvases();
-            float den = Mathf.Max(1, reviewTotal);
-            moveLogScroll.verticalNormalizedPosition = 1f - (reviewPly / den);
+            if (inBranchMode)
+            {
+                moveLogScroll.verticalNormalizedPosition = 0f;
+            }
+            else
+            {
+                float den = Mathf.Max(1, reviewTotal);
+                moveLogScroll.verticalNormalizedPosition = 1f - (reviewPly / den);
+            }
         }
     }
 
@@ -1863,11 +2709,10 @@ public class GoGame : MonoBehaviour
         if (btnUndo != null) btnUndo.SetActive(!rev);
         if (btnPass != null) btnPass.SetActive(!rev);
         if (btnResign != null) btnResign.SetActive(!rev);
-        if (btnClear != null) btnClear.SetActive(!rev);
-        if (btnScore != null) btnScore.SetActive(!rev);
-        if (btnReviewPrev != null) btnReviewPrev.SetActive(rev);
-        if (btnReviewNext != null) btnReviewNext.SetActive(rev);
-        if (btnReviewEnd != null) btnReviewEnd.SetActive(rev);
+        btnClear.SetActive(!rev);
+        btnScore.SetActive(!rev);
+        if (reviewAiRoot != null) reviewAiRoot.SetActive(rev);
+        if (commentModuleRoot != null) commentModuleRoot.SetActive(rev);
         if (homeBtnLabel != null) homeBtnLabel.text = rev ? "返回棋谱" : "返回主界面";
 
         int n = boardSize;
@@ -1894,11 +2739,18 @@ public class GoGame : MonoBehaviour
         }
         else markerSr.enabled = false;
 
-        if (reviewingKifu && reviewRec != null)
+        if (reviewingKifu && inBranchMode)
         {
+            string who = rules.Turn == GoRules.BLACK ? "黑方" : "白方";
+            string brName = (curBranchIdx >= 0 && curBranchIdx < reviewBranches.Count) ? reviewBranches[curBranchIdx].name : "推演";
+            turnText.text = $"【{brName} 推演中】\n实战第 {branchPlyStart} 手 · 推演第 {branchMoveCount} 步\n轮到{who}落子";
+        }
+        else if (reviewingKifu && reviewRec != null)
+        {
+            string who = rules.Turn == GoRules.BLACK ? "黑方" : "白方";
             string names = $"{reviewRec.blackName} vs {reviewRec.whiteName}";
             string res = string.IsNullOrEmpty(reviewRec.result) ? "" : reviewRec.result + "\n";
-            turnText.text = $"{reviewRec.title}\n{names}\n{res}第 {reviewPly}/{reviewTotal} 手";
+            turnText.text = $"{reviewRec.title}\n{names}\n{res}第 {reviewPly}/{reviewTotal} 手 · 轮到{who}落子";
         }
         else if (rules.Result != null) turnText.text = rules.Result;
         else if (aiBusy) turnText.text = (aiColor == GoRules.BLACK ? "黑棋" : "白棋")
@@ -1912,6 +2764,986 @@ public class GoGame : MonoBehaviour
 
         RefreshMoveLog();
         RefreshStudyVisuals();
+        UpdateBoardMarksVisuals();
+        SyncCommentModule();
+
+        if (reviewingKifu)
+        {
+            DrawWinrateChart(reviewPly);
+            UpdateReviewInfoText(reviewPly);
+        }
+    }
+
+    /* ---------------- KataGo 复盘分析与变化推演 ---------------- */
+
+    Sprite MakeBadgeSprite()
+    {
+        int s = 128;
+        float r = s / 2f - 2f;
+        var px = new Color32[s * s];
+        for (int y = 0; y < s; y++)
+        for (int x = 0; x < s; x++)
+        {
+            float dx = x - s / 2f, dy = y - s / 2f;
+            float d = Mathf.Sqrt(dx * dx + dy * dy);
+            float a = Mathf.Clamp01(r - d);
+            px[y * s + x] = new Color32(255, 255, 255, (byte)(255 * a));
+        }
+        var tex = new Texture2D(s, s, TextureFormat.RGBA32, false);
+        tex.SetPixels32(px); tex.Apply(false, false);
+        return Sprite.Create(tex, new Rect(0, 0, s, s), new Vector2(0.5f, 0.5f), s);
+    }
+
+    void BuildAnalysisOverlays()
+    {
+        if (candBadgeSpr == null) candBadgeSpr = MakeBadgeSprite();
+
+        var co = new GameObject("CandidatesRoot");
+        co.transform.SetParent(boardRoot, false);
+        candRoot = co;
+
+        for (int i = 0; i < MaxCandidates; i++)
+        {
+            var go = new GameObject($"cand_{i}");
+            go.transform.SetParent(candRoot.transform, false);
+            go.transform.localScale = Vector3.one * 0.88f;
+
+            var sr = go.AddComponent<SpriteRenderer>();
+            sr.sprite = candBadgeSpr;
+            sr.sortingOrder = 6;
+            candSrs[i] = sr;
+
+            var to = new GameObject("Text");
+            to.transform.SetParent(go.transform, false);
+            to.transform.localPosition = Vector3.zero;
+            var tm = to.AddComponent<TextMesh>();
+            tm.font = font;
+            tm.fontSize = 24;
+            tm.characterSize = 0.070f;
+            tm.lineSpacing = 0.82f;
+            tm.anchor = TextAnchor.MiddleCenter;
+            tm.alignment = TextAlignment.Center;
+            tm.color = Color.white;
+            var mr = to.GetComponent<MeshRenderer>();
+            if (font != null && font.material != null) mr.sharedMaterial = font.material;
+            mr.sortingOrder = 7;
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            candTexts[i] = tm;
+
+            go.SetActive(false);
+            candBadges[i] = go;
+            candIdxs[i] = -1;
+        }
+
+        var pvo = new GameObject("PvRoot");
+        pvo.transform.SetParent(boardRoot, false);
+        pvRoot = pvo;
+
+        for (int i = 0; i < MaxPvSteps; i++)
+        {
+            var go = new GameObject($"pv_{i}");
+            go.transform.SetParent(pvRoot.transform, false);
+            go.transform.localScale = Vector3.one * 0.92f;
+
+            var sr = go.AddComponent<SpriteRenderer>();
+            sr.sortingOrder = 5;
+            pvStoneSrs[i] = sr;
+
+            var to = new GameObject("Text");
+            to.transform.SetParent(go.transform, false);
+            to.transform.localPosition = new Vector3(0f, 0.02f, 0f);
+            var tm = to.AddComponent<TextMesh>();
+            tm.font = numberFont;
+            tm.fontSize = 32;
+            tm.characterSize = 0.09f;
+            tm.anchor = TextAnchor.MiddleCenter;
+            tm.alignment = TextAlignment.Center;
+            var mr = to.GetComponent<MeshRenderer>();
+            if (numberFont != null && numberFont.material != null) mr.sharedMaterial = numberFont.material;
+            mr.sortingOrder = 6;
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            pvTextMeshes[i] = tm;
+
+            go.SetActive(false);
+        }
+    }
+
+    void BuildReviewAiUi(Transform pt)
+    {
+        reviewAiRoot = new GameObject("ReviewAiRoot");
+        reviewAiRoot.transform.SetParent(pt, false);
+        var vlg = reviewAiRoot.AddComponent<VerticalLayoutGroup>();
+        vlg.spacing = 6f;
+        vlg.childControlWidth = true;
+        vlg.childControlHeight = true;
+        vlg.childForceExpandWidth = true;
+        vlg.childForceExpandHeight = false;
+
+        // 1. 复盘进退按钮行（上一手 / 下一手 / 终局）
+        var navRow = new GameObject("NavRow");
+        navRow.transform.SetParent(reviewAiRoot.transform, false);
+        var hlgNav = navRow.AddComponent<HorizontalLayoutGroup>();
+        hlgNav.spacing = 4f;
+        hlgNav.childControlWidth = true;
+        hlgNav.childControlHeight = true;
+        hlgNav.childForceExpandWidth = true;
+        hlgNav.childForceExpandHeight = true;
+        var navLe = navRow.AddComponent<LayoutElement>();
+        navLe.preferredHeight = 34f;
+
+        btnReviewPrev = MakeButton(navRow.transform, "上一手", 34f, () => ReviewSeek(reviewPly - 1)).gameObject;
+        btnReviewNext = MakeButton(navRow.transform, "下一手", 34f, () => ReviewSeek(reviewPly + 1)).gameObject;
+        btnReviewEnd = MakeButton(navRow.transform, "终局", 34f, () => ReviewSeek(reviewTotal)).gameObject;
+
+        // 1.5 标记工具按钮行：[落子] [✕] [▲] [■] [●] [清空]
+        var markRow = new GameObject("MarkToolRow");
+        markRow.transform.SetParent(reviewAiRoot.transform, false);
+        var hlgMark = markRow.AddComponent<HorizontalLayoutGroup>();
+        hlgMark.spacing = 3f;
+        hlgMark.childControlWidth = true;
+        hlgMark.childControlHeight = true;
+        hlgMark.childForceExpandWidth = true;
+        hlgMark.childForceExpandHeight = true;
+        var markLe = markRow.AddComponent<LayoutElement>();
+        markLe.preferredHeight = 30f;
+
+        optMarkButtons.Clear();
+        optMarkButtons.Add(MakeButton(markRow.transform, "落子", 30f, () => SelectMarkTool(GoMarkType.None)));
+        optMarkButtons.Add(MakeButton(markRow.transform, "✕", 30f, () => SelectMarkTool(GoMarkType.Cross)));
+        optMarkButtons.Add(MakeButton(markRow.transform, "▲", 30f, () => SelectMarkTool(GoMarkType.Triangle)));
+        optMarkButtons.Add(MakeButton(markRow.transform, "■", 30f, () => SelectMarkTool(GoMarkType.Square)));
+        optMarkButtons.Add(MakeButton(markRow.transform, "●", 30f, () => SelectMarkTool(GoMarkType.Circle)));
+
+        var btnClearMark = MakeButton(markRow.transform, "清空", 30f, ClearAllMarks);
+        var clearImg = btnClearMark.GetComponent<Image>();
+        if (clearImg != null) clearImg.color = new Color(0.38f, 0.18f, 0.14f, 1f);
+
+        SyncMarkToolButtons();
+
+        // 2. 胜率与目数信息文本
+        winrateInfoText = MakeText(reviewAiRoot.transform, "胜率分析", 12, Ink, TextAnchor.MiddleCenter);
+        winrateInfoText.supportRichText = true;
+        var infoLe = winrateInfoText.gameObject.AddComponent<LayoutElement>();
+        infoLe.preferredHeight = 18f;
+
+        // 3. 双色胜率条容器
+        var barGo = new GameObject("WinrateBarContainer");
+        barGo.transform.SetParent(reviewAiRoot.transform, false);
+        var barLe = barGo.AddComponent<LayoutElement>();
+        barLe.preferredWidth = 236f;
+        barLe.preferredHeight = 22f;
+        barLe.minHeight = 22f;
+        var barBgImg = barGo.AddComponent<Image>();
+        barBgImg.color = new Color(0.18f, 0.15f, 0.12f, 1f);
+
+        var bBarGo = new GameObject("BarBlack");
+        bBarGo.transform.SetParent(barGo.transform, false);
+        var bImg = bBarGo.AddComponent<Image>();
+        bImg.color = new Color(0.12f, 0.12f, 0.14f, 1f);
+        barBlackRt = bBarGo.GetComponent<RectTransform>();
+        barBlackRt.anchorMin = new Vector2(0f, 0f);
+        barBlackRt.anchorMax = new Vector2(0.5f, 1f);
+        barBlackRt.offsetMin = Vector2.zero;
+        barBlackRt.offsetMax = Vector2.zero;
+
+        var wBarGo = new GameObject("BarWhite");
+        wBarGo.transform.SetParent(barGo.transform, false);
+        var wImg = wBarGo.AddComponent<Image>();
+        wImg.color = new Color(0.92f, 0.90f, 0.86f, 1f);
+        barWhiteRt = wBarGo.GetComponent<RectTransform>();
+        barWhiteRt.anchorMin = new Vector2(0.5f, 0f);
+        barWhiteRt.anchorMax = new Vector2(1f, 1f);
+        barWhiteRt.offsetMin = Vector2.zero;
+        barWhiteRt.offsetMax = Vector2.zero;
+
+        var tGo = new GameObject("BarText");
+        tGo.transform.SetParent(barGo.transform, false);
+        winrateBarText = tGo.AddComponent<Text>();
+        winrateBarText.font = font;
+        winrateBarText.fontSize = 11;
+        winrateBarText.color = Color.white;
+        winrateBarText.alignment = TextAnchor.MiddleCenter;
+        winrateBarText.horizontalOverflow = HorizontalWrapMode.Overflow;
+        winrateBarText.verticalOverflow = VerticalWrapMode.Overflow;
+        winrateBarText.supportRichText = true;
+        var barOutline = tGo.AddComponent<Outline>();
+        barOutline.effectColor = new Color(0f, 0f, 0f, 0.95f);
+        barOutline.effectDistance = new Vector2(1f, -1f);
+        var tRt = tGo.GetComponent<RectTransform>();
+        tRt.anchorMin = Vector2.zero;
+        tRt.anchorMax = Vector2.one;
+        tRt.offsetMin = Vector2.zero;
+        tRt.offsetMax = Vector2.zero;
+
+        // 4. 全局胜率走势折线图
+        var chartGo = new GameObject("WinrateChart");
+        chartGo.transform.SetParent(reviewAiRoot.transform, false);
+        var chartLe = chartGo.AddComponent<LayoutElement>();
+        chartLe.preferredWidth = 236f;
+        chartLe.preferredHeight = 64f;
+        chartLe.minHeight = 64f;
+
+        winrateChartTex = new Texture2D(236, 64, TextureFormat.RGBA32, false);
+        winrateChartTex.filterMode = FilterMode.Point;
+        winrateChartImg = chartGo.AddComponent<RawImage>();
+        winrateChartImg.texture = winrateChartTex;
+
+        var trigger = chartGo.AddComponent<EventTrigger>();
+        var entry = new EventTrigger.Entry { eventID = EventTriggerType.PointerDown };
+        entry.callback.AddListener((data) => { OnChartClick((PointerEventData)data, chartGo); });
+        trigger.triggers.Add(entry);
+        var dragEntry = new EventTrigger.Entry { eventID = EventTriggerType.Drag };
+        dragEntry.callback.AddListener((data) => { OnChartClick((PointerEventData)data, chartGo); });
+        trigger.triggers.Add(dragEntry);
+
+        // 5. 候选点详情展示文本
+        candInfoText = MakeText(reviewAiRoot.transform, "开启「AI推演」可查看候选点与变化图", 12, Ink, TextAnchor.MiddleLeft);
+        candInfoText.supportRichText = true;
+        var candInfoLe = candInfoText.gameObject.AddComponent<LayoutElement>();
+        candInfoLe.preferredHeight = 36f;
+        candInfoLe.minHeight = 36f;
+
+        // 6. 分支推演控制按钮行：[推演一步] [悔一手] [恢复实战]
+        var branchRow = new GameObject("BranchRow");
+        branchRow.transform.SetParent(reviewAiRoot.transform, false);
+        var hlgBranch = branchRow.AddComponent<HorizontalLayoutGroup>();
+        hlgBranch.spacing = 4f;
+        hlgBranch.childControlWidth = true;
+        hlgBranch.childControlHeight = true;
+        hlgBranch.childForceExpandWidth = true;
+        hlgBranch.childForceExpandHeight = true;
+        var branchLe = branchRow.AddComponent<LayoutElement>();
+        branchLe.preferredHeight = 32f;
+
+        var btnStep = MakeButton(branchRow.transform, "推演一步", 32f, StepAiCandidate);
+        btnStepAi = btnStep.gameObject;
+        var stepImg = btnStepAi.GetComponent<Image>();
+        if (stepImg != null) stepImg.color = new Color(0.18f, 0.44f, 0.28f, 1f);
+
+        var btnUndo = MakeButton(branchRow.transform, "悔一手", 32f, UndoBranchMove);
+        btnBranchUndo = btnUndo.gameObject;
+
+        var btnExit = MakeButton(branchRow.transform, "恢复实战", 32f, ExitBranchMode);
+        btnExitBranch = btnExit.gameObject;
+        var exitImg = btnExitBranch.GetComponent<Image>();
+        if (exitImg != null) exitImg.color = new Color(0.48f, 0.22f, 0.16f, 1f);
+
+        btnBranchUndo.SetActive(false);
+        btnExitBranch.SetActive(false);
+
+        // 6.5 变化分支管理按钮行：[新建变化] [展开/收起] [切换变化] [删除变化]
+        var varRow = new GameObject("VarRow");
+        varRow.transform.SetParent(reviewAiRoot.transform, false);
+        var hlgVar = varRow.AddComponent<HorizontalLayoutGroup>();
+        hlgVar.spacing = 3f;
+        hlgVar.childControlWidth = true;
+        hlgVar.childControlHeight = true;
+        hlgVar.childForceExpandWidth = true;
+        hlgVar.childForceExpandHeight = true;
+        var varLe = varRow.AddComponent<LayoutElement>();
+        varLe.preferredHeight = 28f;
+
+        MakeButton(varRow.transform, "新建变化", 28f, NewVariation);
+        MakeButton(varRow.transform, "展开/收起(+/-)", 28f, ToggleVariationsExpand);
+        var btnCycle = MakeButton(varRow.transform, "切换变化", 28f, CycleLoadVariation);
+        btnCurBranchLabel = btnCycle.GetComponentInChildren<Text>();
+        var btnDel = MakeButton(varRow.transform, "删除变化", 28f, DeleteCurrentVariation);
+        var delImg = btnDel.GetComponent<Image>();
+        if (delImg != null) delImg.color = new Color(0.38f, 0.18f, 0.14f, 1f);
+
+        // 7. AI 功能按钮行：[AI推演: 关/开] [全局分析]
+        var aiRow = new GameObject("AiRow");
+        aiRow.transform.SetParent(reviewAiRoot.transform, false);
+        var hlgAi = aiRow.AddComponent<HorizontalLayoutGroup>();
+        hlgAi.spacing = 4f;
+        hlgAi.childControlWidth = true;
+        hlgAi.childControlHeight = true;
+        hlgAi.childForceExpandWidth = true;
+        hlgAi.childForceExpandHeight = true;
+        var aiLe = aiRow.AddComponent<LayoutElement>();
+        aiLe.preferredHeight = 34f;
+
+        var btnAiToggle = MakeButton(aiRow.transform, "AI推演: 关", 34f, ToggleAiReview);
+        btnAiReviewLabel = btnAiToggle.GetComponentInChildren<Text>();
+
+        var btnFull = MakeButton(aiRow.transform, "全局分析", 34f, OnFullGameAnalyzeClicked);
+        btnFullAnalyzeLabel = btnFull.GetComponentInChildren<Text>();
+
+        reviewAiRoot.SetActive(false);
+    }
+
+    void OnChartClick(PointerEventData data, GameObject chartGo)
+    {
+        if (!reviewingKifu || reviewTotal <= 0) return;
+        var rt = chartGo.GetComponent<RectTransform>();
+        if (RectTransformUtility.ScreenPointToLocalPointInRectangle(rt, data.position, data.pressEventCamera, out Vector2 local))
+        {
+            float w = rt.rect.width;
+            float u = Mathf.Clamp01((local.x - rt.rect.xMin) / w);
+            int targetPly = Mathf.Clamp(Mathf.RoundToInt(u * reviewTotal), 0, reviewTotal);
+            ReviewSeek(targetPly);
+        }
+    }
+
+    void DrawWinrateChart(int curPly)
+    {
+        if (winrateChartTex == null) return;
+        int w = winrateChartTex.width;
+        int h = winrateChartTex.height;
+        var px = new Color32[w * h];
+
+        Color32 bg = new Color32(0x14, 0x11, 0x0E, 0xFA);
+        Color32 line50 = new Color32(0x50, 0x42, 0x32, 0x90);
+        Color32 grid25 = new Color32(0x32, 0x28, 0x1E, 0x50);
+        Color32 wrLine = new Color32(0xDF, 0xA8, 0x3E, 0xFF);
+        Color32 curBar = new Color32(0xFF, 0xFF, 0xFF, 0xE5);
+        Color32 colBlunder = new Color32(0xEA, 0x3C, 0x3C, 0xFF);
+        Color32 colInacc = new Color32(0xFA, 0x8C, 0x16, 0xFF);
+
+        for (int i = 0; i < px.Length; i++) px[i] = bg;
+
+        int y50 = h / 2;
+        int y25 = h / 4;
+        int y75 = h * 3 / 4;
+        for (int x = 0; x < w; x++)
+        {
+            if (x % 4 != 0) px[y50 * w + x] = line50;
+            if (x % 8 == 0)
+            {
+                px[y25 * w + x] = grid25;
+                px[y75 * w + x] = grid25;
+            }
+        }
+
+        if (gameAnalysis != null && gameAnalysis.blackWinrates != null && reviewTotal > 0)
+        {
+            float[] wrs = gameAnalysis.blackWinrates;
+            int total = Mathf.Min(reviewTotal, wrs.Length - 1);
+            int prevX = 0;
+            int prevY = Mathf.Clamp(Mathf.RoundToInt(wrs[0] * (h - 4)) + 2, 2, h - 3);
+
+            for (int x = 1; x < w; x++)
+            {
+                float plyF = (x / (float)(w - 1)) * total;
+                int p0 = Mathf.Clamp(Mathf.FloorToInt(plyF), 0, total);
+                int p1 = Mathf.Clamp(Mathf.CeilToInt(plyF), 0, total);
+                float t = plyF - p0;
+                float wr = Mathf.Lerp(wrs[p0], wrs[p1], t);
+                int cy = Mathf.Clamp(Mathf.RoundToInt(wr * (h - 4)) + 2, 2, h - 3);
+
+                DrawLine(px, w, h, prevX, prevY, x, cy, wrLine);
+                prevX = x;
+                prevY = cy;
+            }
+
+            if (gameAnalysis.blunders != null)
+            {
+                for (int ply = 1; ply <= total; ply++)
+                {
+                    int b = gameAnalysis.blunders[ply];
+                    if (b > 0)
+                    {
+                        int bx = Mathf.RoundToInt((ply / (float)total) * (w - 1));
+                        int by = Mathf.Clamp(Mathf.RoundToInt(wrs[ply] * (h - 4)) + 2, 2, h - 3);
+                        DrawDot(px, w, h, bx, by, b == 2 ? 3 : 2, b == 2 ? colBlunder : colInacc);
+                    }
+                }
+            }
+
+            int cx = Mathf.Clamp(Mathf.RoundToInt((curPly / (float)total) * (w - 1)), 0, w - 1);
+            for (int y = 0; y < h; y++)
+            {
+                px[y * w + cx] = curBar;
+                if (cx > 0) px[y * w + cx - 1] = new Color32(0xFF, 0xFF, 0xFF, 0x40);
+                if (cx < w - 1) px[y * w + cx + 1] = new Color32(0xFF, 0xFF, 0xFF, 0x40);
+            }
+        }
+        else if (reviewTotal > 0)
+        {
+            int cx = Mathf.Clamp(Mathf.RoundToInt((curPly / (float)reviewTotal) * (w - 1)), 0, w - 1);
+            for (int y = 0; y < h; y++) px[y * w + cx] = curBar;
+        }
+
+        winrateChartTex.SetPixels32(px);
+        winrateChartTex.Apply(false, false);
+    }
+
+    static void DrawDot(Color32[] px, int w, int h, int cx, int cy, int r, Color32 c)
+    {
+        for (int y = cy - r; y <= cy + r; y++)
+        for (int x = cx - r; x <= cx + r; x++)
+        {
+            if (x < 0 || y < 0 || x >= w || y >= h) continue;
+            if ((x - cx) * (x - cx) + (y - cy) * (y - cy) <= r * r)
+                px[y * w + x] = c;
+        }
+    }
+
+    static void DrawLine(Color32[] px, int w, int h, int x0, int y0, int x1, int y1, Color32 c)
+    {
+        int dx = Mathf.Abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+        int dy = -Mathf.Abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+        int err = dx + dy;
+        while (true)
+        {
+            if (x0 >= 0 && x0 < w && y0 >= 0 && y0 < h)
+            {
+                px[y0 * w + x0] = c;
+                if (y0 + 1 < h) px[(y0 + 1) * w + x0] = c;
+            }
+            if (x0 == x1 && y0 == y1) break;
+            int e2 = 2 * err;
+            if (e2 >= dy) { err += dy; x0 += sx; }
+            if (e2 <= dx) { err += dx; y0 += sy; }
+        }
+    }
+
+    void UpdateReviewInfoText(int ply)
+    {
+        if (winrateInfoText == null) return;
+        if (inBranchMode)
+        {
+            string who = rules.Turn == GoRules.BLACK ? "黑方" : "白方";
+            if (curPosAnalysis != null)
+            {
+                float wr = curPosAnalysis.blackWinrate;
+                float lead = curPosAnalysis.blackScoreLead;
+                string leadStr = lead > 0.05f ? $"黑+{lead:0.0}目" : lead < -0.05f ? $"白+{(-lead):0.0}目" : "均势";
+                winrateInfoText.text = $"<color=#EAA83E>【试下第 {branchMoveCount} 步】{who}走 · 黑胜率 {(wr * 100f):0.0}% ({leadStr})</color>";
+            }
+            else
+            {
+                winrateInfoText.text = $"<color=#EAA83E>【试下第 {branchMoveCount} 步】轮到{who}落子 · AI思考中…</color>";
+            }
+            return;
+        }
+        if (gameAnalysis != null && gameAnalysis.blackWinrates != null && ply >= 0 && ply < gameAnalysis.blackWinrates.Length)
+        {
+            float wr = gameAnalysis.blackWinrates[ply];
+            float lead = gameAnalysis.blackScoreLeads[ply];
+            int b = gameAnalysis.blunders != null && ply < gameAnalysis.blunders.Length ? gameAnalysis.blunders[ply] : 0;
+            string tag = b == 2 ? " <color=#EB3B3B>[恶手]</color>" : b == 1 ? " <color=#FA8C16>[失误]</color>" : "";
+            string leadStr = lead > 0.05f ? $"黑+{lead:0.0}目" : lead < -0.05f ? $"白+{(-lead):0.0}目" : "均势";
+            winrateInfoText.text = $"第 {ply} 手 · 黑胜率 {(wr * 100f):0.0}% ({leadStr}){tag}";
+        }
+        else if (curPosAnalysis != null)
+        {
+            float wr = curPosAnalysis.blackWinrate;
+            float lead = curPosAnalysis.blackScoreLead;
+            string leadStr = lead > 0.05f ? $"黑+{lead:0.0}目" : lead < -0.05f ? $"白+{(-lead):0.0}目" : "均势";
+            winrateInfoText.text = $"第 {ply} 手 · 黑胜率 {(wr * 100f):0.0}% ({leadStr})";
+        }
+        else
+        {
+            winrateInfoText.text = isAnalyzingFullGame ? "全局分析中…" : "胜率走势（点击「全局分析」）";
+        }
+    }
+
+    void ToggleAiReview()
+    {
+        aiReviewEnabled = !aiReviewEnabled;
+        if (btnAiReviewLabel != null)
+            btnAiReviewLabel.text = aiReviewEnabled ? "AI推演: 开" : "AI推演: 关";
+        if (aiReviewEnabled)
+        {
+            if (!GoKataGo.IsAvailable())
+            {
+                Flash(GoKataGo.InstallHint());
+                aiReviewEnabled = false;
+                if (btnAiReviewLabel != null) btnAiReviewLabel.text = "AI推演: 关";
+                return;
+            }
+            RequestPositionAnalysis();
+        }
+        else
+        {
+            HideCandidateBadges();
+            if (curAnalysisCo != null) { StopCoroutine(curAnalysisCo); curAnalysisCo = null; }
+        }
+    }
+
+    void OnFullGameAnalyzeClicked()
+    {
+        if (isAnalyzingFullGame)
+        {
+            GoKataGo.CancelAnalysis();
+            isAnalyzingFullGame = false;
+            if (btnFullAnalyzeLabel != null) btnFullAnalyzeLabel.text = "全局分析";
+            Flash("已取消全局分析");
+            return;
+        }
+
+        if (!GoKataGo.IsAvailable())
+        {
+            Flash(GoKataGo.InstallHint());
+            return;
+        }
+
+        StartFullGameAnalysis();
+    }
+
+    void StartFullGameAnalysis()
+    {
+        if (fullAnalysisCo != null) StopCoroutine(fullAnalysisCo);
+        isAnalyzingFullGame = true;
+        if (btnFullAnalyzeLabel != null) btnFullAnalyzeLabel.text = "分析 0% [取消]";
+
+        fullAnalysisCo = StartCoroutine(GoKataGo.AnalyzeFullGame(
+            boardSize,
+            rules.Komi,
+            reviewRec != null ? reviewRec.handicap : 0,
+            HandicapPoints,
+            reviewLogCsv,
+            reviewTotal,
+            30,
+            (ply, total, wr, lead) =>
+            {
+                if (btnFullAnalyzeLabel != null)
+                {
+                    int pct = total > 0 ? (ply * 100 / total) : 0;
+                    btnFullAnalyzeLabel.text = $"分析 {pct}% [取消]";
+                }
+                if (winrateInfoText != null)
+                {
+                    winrateInfoText.text = $"分析中 {ply}/{total} 手…";
+                }
+            },
+            (result) =>
+            {
+                isAnalyzingFullGame = false;
+                fullAnalysisCo = null;
+                if (btnFullAnalyzeLabel != null) btnFullAnalyzeLabel.text = "全局分析";
+                if (result != null)
+                {
+                    gameAnalysis = result;
+                    if (reviewRec != null)
+                    {
+                        reviewRec.analysisJson = result.ToJson();
+                        KifuDatabase.UpdateAnalysis(reviewRec.id, reviewRec.analysisJson);
+                    }
+                    DrawWinrateChart(reviewPly);
+                    UpdateReviewInfoText(reviewPly);
+                    Flash("全局胜率分析已完成！");
+                }
+            }
+        ));
+    }
+
+    void RequestPositionAnalysis()
+    {
+        if (!aiReviewEnabled || !reviewingKifu) return;
+        if (curAnalysisCo != null) { StopCoroutine(curAnalysisCo); curAnalysisCo = null; }
+        curAnalysisCo = StartCoroutine(DoPositionAnalysis());
+    }
+
+    IEnumerator DoPositionAnalysis()
+    {
+        curPosAnalysis = null;
+        HideCandidateBadges();
+        int side = rules.Turn;
+        yield return GoKataGo.AnalyzePosition(
+            rules,
+            side,
+            reviewRec != null ? reviewRec.handicap : 0,
+            HandicapPoints,
+            60,
+            (pos) =>
+            {
+                curPosAnalysis = pos;
+                if (pos != null)
+                {
+                    float delta = 0f;
+                    if (branchLastWinrate >= 0f)
+                    {
+                        delta = pos.blackWinrate - branchLastWinrate;
+                    }
+                    UpdateWinrateBar(pos.blackWinrate, pos.blackScoreLead, delta);
+                    branchLastWinrate = pos.blackWinrate;
+
+                    if (inBranchMode && curBranchIdx >= 0 && curBranchIdx < reviewBranches.Count)
+                    {
+                        var br = reviewBranches[curBranchIdx];
+                        if (curBranchStepIdx >= 0 && curBranchStepIdx < br.steps.Count)
+                        {
+                            br.steps[curBranchStepIdx].winrate = pos.blackWinrate;
+                            br.steps[curBranchStepIdx].scoreLead = pos.blackScoreLead;
+                            SaveReviewCommentsAndBranches();
+                            RefreshReviewMoveLog();
+                        }
+                    }
+
+                    ShowCandidateBadges(pos);
+                    UpdateReviewInfoText(reviewPly);
+                }
+            }
+        );
+        curAnalysisCo = null;
+    }
+
+    void ShowCandidateBadges(KataPositionAnalysis pos)
+    {
+        HideCandidateBadges();
+        if (pos == null || pos.candidates == null || !aiReviewEnabled) return;
+
+        Color[] colors = {
+            new Color(0.12f, 0.74f, 0.38f, 0.95f), // Emerald Green
+            new Color(0.18f, 0.60f, 0.92f, 0.92f), // Sky Blue
+            new Color(0.94f, 0.62f, 0.16f, 0.92f), // Amber
+            new Color(0.85f, 0.45f, 0.85f, 0.92f), // Purple
+            new Color(0.65f, 0.65f, 0.65f, 0.90f)  // Gray
+        };
+
+        int count = Mathf.Min(pos.candidates.Count, MaxCandidates);
+        activeCandCount = count;
+
+        for (int i = 0; i < count; i++)
+        {
+            var c = pos.candidates[i];
+            if (c.x < 0 || c.y < 0 || c.x >= boardSize || c.y >= boardSize) continue;
+
+            candBadges[i].transform.position = new Vector3(c.x, c.y, 0f);
+            candSrs[i].color = colors[i % colors.Length];
+
+            char letter = (char)('A' + i);
+            int wrPct = Mathf.RoundToInt(c.winrate * 100f);
+            string leadStr = (c.scoreLead >= 0 ? "+" : "") + c.scoreLead.ToString("0.0");
+            candTexts[i].text = $"{letter} {wrPct}%\n{leadStr}";
+
+            candBadges[i].SetActive(true);
+            candIdxs[i] = rules.Idx(c.x, c.y);
+        }
+
+        if (count > 0)
+        {
+            hoveredCandidateIdx = 0;
+            ShowPv(pos.candidates[0]);
+            UpdateCandidateDetailText(pos.candidates[0]);
+        }
+    }
+
+    void HideCandidateBadges()
+    {
+        activeCandCount = 0;
+        hoveredCandidateIdx = -1;
+        for (int i = 0; i < MaxCandidates; i++)
+        {
+            if (candBadges[i] != null) candBadges[i].SetActive(false);
+            candIdxs[i] = -1;
+        }
+        HidePv();
+    }
+
+    void ShowPv(KataCandidate cand)
+    {
+        HidePv();
+        if (cand == null || cand.pv == null || cand.pv.Count == 0 || !aiReviewEnabled) return;
+
+        int side = rules.Turn;
+        int shown = 0;
+
+        for (int i = 0; i < cand.pv.Count && shown < MaxPvSteps; i++)
+        {
+            string s = cand.pv[i];
+            if (!GoKataGo.ParseCoord(s, out int x, out int y)) continue;
+            if (x < 0 || y < 0 || x >= boardSize || y >= boardSize) continue;
+
+            var go = pvStoneSrs[shown].gameObject;
+            go.transform.position = new Vector3(x, y, 0f);
+
+            bool isBlack = side == GoRules.BLACK;
+            pvStoneSrs[shown].sprite = isBlack ? stoneBlack : stoneWhite;
+            pvStoneSrs[shown].color = new Color(1f, 1f, 1f, 0.78f);
+
+            pvTextMeshes[shown].text = (shown + 1).ToString();
+            pvTextMeshes[shown].color = isBlack ? MoveNumOnBlack : MoveNumOnWhite;
+
+            go.SetActive(true);
+            shown++;
+            side = GoRules.Opp(side);
+        }
+    }
+
+    void HidePv()
+    {
+        for (int i = 0; i < MaxPvSteps; i++)
+        {
+            if (pvStoneSrs[i] != null && pvStoneSrs[i].gameObject != null)
+                pvStoneSrs[i].gameObject.SetActive(false);
+        }
+    }
+
+    void PlayBranchMove(int x, int y)
+    {
+        if (!reviewingKifu) return;
+
+        if (curAnalysisCo != null)
+        {
+            StopCoroutine(curAnalysisCo);
+            curAnalysisCo = null;
+        }
+
+        if (isAnalyzingFullGame)
+        {
+            GoKataGo.CancelAnalysis();
+            isAnalyzingFullGame = false;
+            if (btnFullAnalyzeLabel != null) btnFullAnalyzeLabel.text = "全局分析";
+        }
+
+        rules.ResumeRecording();
+
+        if (x < 0 || y < 0)
+        {
+            if (!inBranchMode || curBranchIdx < 0 || curBranchIdx >= reviewBranches.Count)
+            {
+                inBranchMode = true;
+                branchPlyStart = reviewPly;
+                branchMoveCount = 0;
+                var br = new MoveBranchData
+                {
+                    branchId = reviewBranches.Count + 1,
+                    name = $"变化 {reviewBranches.Count + 1}",
+                    startPly = reviewPly,
+                    isExpanded = true,
+                    steps = new List<BranchStepData>()
+                };
+                reviewBranches.Add(br);
+                curBranchIdx = reviewBranches.Count - 1;
+                branchLastWinrate = curPosAnalysis != null ? curPosAnalysis.blackWinrate 
+                    : (gameAnalysis != null && reviewPly < gameAnalysis.blackWinrates.Length ? gameAnalysis.blackWinrates[reviewPly] : 0.5f);
+            }
+            rules.Pass();
+            branchMoveCount++;
+            var step = new BranchStepData
+            {
+                step = branchMoveCount,
+                x = -1,
+                y = -1,
+                color = GoRules.Opp(rules.Turn),
+                isPass = true,
+                winrate = branchLastWinrate
+            };
+            reviewBranches[curBranchIdx].steps.Add(step);
+            curBranchStepIdx = reviewBranches[curBranchIdx].steps.Count - 1;
+
+            HideCandidateBadges();
+            Refresh();
+            if (btnExitBranch != null) btnExitBranch.SetActive(true);
+            if (btnBranchUndo != null) btnBranchUndo.SetActive(true);
+            Flash($"【{reviewBranches[curBranchIdx].name}】第 {branchMoveCount} 步停一手，AI深入推演中…");
+            SaveReviewCommentsAndBranches();
+            if (aiReviewEnabled) RequestPositionAnalysis();
+            else UpdateReviewInfoText(reviewPly);
+            return;
+        }
+
+        if (x >= boardSize || y >= boardSize) return;
+
+        if (rules.Board[rules.Idx(x, y)] != GoRules.EMPTY)
+        {
+            Flash("该位置已有棋子");
+            return;
+        }
+
+        if (!inBranchMode || curBranchIdx < 0 || curBranchIdx >= reviewBranches.Count)
+        {
+            inBranchMode = true;
+            branchPlyStart = reviewPly;
+            branchMoveCount = 0;
+            var br = new MoveBranchData
+            {
+                branchId = reviewBranches.Count + 1,
+                name = $"变化 {reviewBranches.Count + 1}",
+                startPly = reviewPly,
+                isExpanded = true,
+                steps = new List<BranchStepData>()
+            };
+            reviewBranches.Add(br);
+            curBranchIdx = reviewBranches.Count - 1;
+            branchLastWinrate = curPosAnalysis != null ? curPosAnalysis.blackWinrate 
+                : (gameAnalysis != null && reviewPly < gameAnalysis.blackWinrates.Length ? gameAnalysis.blackWinrates[reviewPly] : 0.5f);
+        }
+
+        if (rules.Play(x, y, out string msg))
+        {
+            branchMoveCount++;
+            int movedColor = GoRules.Opp(rules.Turn);
+            var step = new BranchStepData
+            {
+                step = branchMoveCount,
+                x = x,
+                y = y,
+                color = movedColor,
+                isPass = false,
+                winrate = branchLastWinrate
+            };
+            reviewBranches[curBranchIdx].steps.Add(step);
+            curBranchStepIdx = reviewBranches[curBranchIdx].steps.Count - 1;
+
+            HideCandidateBadges();
+            Refresh();
+            if (btnExitBranch != null) btnExitBranch.SetActive(true);
+            if (btnBranchUndo != null) btnBranchUndo.SetActive(true);
+
+            string who = movedColor == GoRules.BLACK ? "黑" : "白";
+            string coordStr = GoKataGo.Coord(x, y);
+            Flash($"【{reviewBranches[curBranchIdx].name}】第 {branchMoveCount} 步（{who}走 {coordStr}），AI深入推演中…");
+            SaveReviewCommentsAndBranches();
+
+            if (aiReviewEnabled)
+            {
+                RequestPositionAnalysis();
+            }
+            else
+            {
+                UpdateReviewInfoText(reviewPly);
+            }
+        }
+        else
+        {
+            Flash(msg);
+        }
+    }
+
+    void StepAiCandidate()
+    {
+        if (!reviewingKifu) return;
+        if (!aiReviewEnabled)
+        {
+            ToggleAiReview();
+            if (!aiReviewEnabled) return;
+        }
+        if (curPosAnalysis == null || curPosAnalysis.candidates == null || curPosAnalysis.candidates.Count == 0)
+        {
+            Flash("AI 选点计算中，请稍候…");
+            return;
+        }
+        int idx = (hoveredCandidateIdx >= 0 && hoveredCandidateIdx < curPosAnalysis.candidates.Count) ? hoveredCandidateIdx : 0;
+        var c = curPosAnalysis.candidates[idx];
+        PlayBranchMove(c.x, c.y);
+    }
+
+    void UndoBranchMove()
+    {
+        if (!reviewingKifu || !inBranchMode) return;
+        if (curAnalysisCo != null)
+        {
+            StopCoroutine(curAnalysisCo);
+            curAnalysisCo = null;
+        }
+
+        if (branchMoveCount <= 1)
+        {
+            rules.Undo(1);
+            if (curBranchIdx >= 0 && curBranchIdx < reviewBranches.Count)
+            {
+                var br = reviewBranches[curBranchIdx];
+                if (br.steps.Count > 0) br.steps.RemoveAt(br.steps.Count - 1);
+            }
+            ExitBranchMode();
+            return;
+        }
+
+        rules.Undo(1);
+        branchMoveCount--;
+        if (curBranchIdx >= 0 && curBranchIdx < reviewBranches.Count)
+        {
+            var br = reviewBranches[curBranchIdx];
+            if (br.steps.Count > 0) br.steps.RemoveAt(br.steps.Count - 1);
+            curBranchStepIdx = br.steps.Count - 1;
+        }
+        branchLastWinrate = -1f;
+        rules.EnsureMoveAtForDisplay();
+        HideCandidateBadges();
+        Refresh();
+        Flash($"已撤销一手，当前为试下第 {branchMoveCount} 步");
+        SaveReviewCommentsAndBranches();
+
+        if (aiReviewEnabled)
+        {
+            RequestPositionAnalysis();
+        }
+        else
+        {
+            UpdateReviewInfoText(reviewPly);
+        }
+    }
+
+    void ExitBranchMode()
+    {
+        if (curAnalysisCo != null)
+        {
+            StopCoroutine(curAnalysisCo);
+            curAnalysisCo = null;
+        }
+        inBranchMode = false;
+        curBranchIdx = -1;
+        curBranchStepIdx = -1;
+        branchMoveCount = 0;
+        branchLastWinrate = -1f;
+        if (btnExitBranch != null) btnExitBranch.SetActive(false);
+        if (btnBranchUndo != null) btnBranchUndo.SetActive(false);
+        ReviewSeek(branchPlyStart);
+        Flash("已恢复实战局面");
+    }
+
+    void UpdateWinrateBar(float blackWr, float blackScoreLead, float deltaWr = 0f)
+    {
+        if (barBlackRt == null || barWhiteRt == null || winrateBarText == null) return;
+        blackWr = Mathf.Clamp(blackWr, 0.02f, 0.98f);
+        barBlackRt.anchorMax = new Vector2(blackWr, 1f);
+        barWhiteRt.anchorMin = new Vector2(blackWr, 0f);
+
+        float bPct = blackWr * 100f;
+        float wPct = (1f - blackWr) * 100f;
+        string leadStr = blackScoreLead > 0.05f ? $"黑+{blackScoreLead:0.0}目" 
+                       : blackScoreLead < -0.05f ? $"白+{(-blackScoreLead):0.0}目" 
+                       : "双方均势";
+
+        string deltaStr = "";
+        if (Mathf.Abs(deltaWr) >= 0.005f)
+        {
+            float dPct = deltaWr * 100f;
+            deltaStr = dPct > 0 
+                ? $" <color=#73D13D>(+{dPct:0.0}%)</color>" 
+                : $" <color=#FF4D4F>({dPct:0.0}%)</color>";
+        }
+
+        winrateBarText.text = $"黑 {bPct:0.0}% | 白 {wPct:0.0}% ({leadStr}){deltaStr}";
+    }
+
+    void UpdateCandidateDetailText(KataCandidate c)
+    {
+        if (candInfoText == null) return;
+        if (c == null)
+        {
+            if (inBranchMode)
+                candInfoText.text = $"<color=#EAA83E>【试下第 {branchMoveCount} 步】</color>点击候选徽章或[推演一步]深入";
+            else
+                candInfoText.text = aiReviewEnabled ? "点击棋盘任意点可试下推演变化" : "点击「AI推演: 关」开启选点分析";
+            return;
+        }
+
+        char letter = (char)('A' + Mathf.Clamp(c.order, 0, 25));
+        string pvStr = FormatPvShort(c.pv, 6);
+        string leadStr = (c.scoreLead >= 0 ? "+" : "") + c.scoreLead.ToString("0.0");
+        int wrPct = Mathf.RoundToInt(c.winrate * 100f);
+        string sideName = rules.Turn == GoRules.BLACK ? "黑" : "白";
+
+        candInfoText.text = $"<b>候选{letter}（{c.coord}）</b> {sideName}胜率:<b>{wrPct}%</b> (领先:<b>{leadStr}目</b>)\n<color=#D4AF37>推荐序列: {pvStr}</color>";
+    }
+
+    static string FormatPvShort(List<string> pv, int maxSteps)
+    {
+        if (pv == null || pv.Count == 0) return "-";
+        int cnt = Mathf.Min(pv.Count, maxSteps);
+        var sb = new System.Text.StringBuilder(cnt * 5);
+        for (int i = 0; i < cnt; i++)
+        {
+            if (i > 0) sb.Append(' ');
+            sb.Append(pv[i]);
+        }
+        if (pv.Count > maxSteps) sb.Append("…");
+        return sb.ToString();
     }
 
     void OnApplicationQuit()

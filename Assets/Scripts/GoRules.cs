@@ -6,17 +6,20 @@ public enum GoPhase { Play, Scoring, Over }
 [System.Serializable]
 public class GoStateData
 {
+    public int schemaVersion = 1;
     public int size;
     public int[] board;
-    public string boardCsv;  // JsonUtility 对 int[] 反序列化不稳定，用 CSV 备份
+    public string boardCsv;        // JsonUtility 对 int[] 反序列化不稳定，用 CSV 备份
+    public string initialBoardCsv; // 让子或初始盘面 CSV 备份
     public int turn, passes, moveCount, lastMove;
     public int capBlack, capWhite;
     public int phase;
     public string result;
     public int[] dead;
     public float komi;
+    public int handicap;
     public string moveAtCsv;
-    public string moveLogCsv;  // x,y,color 序列，用于恢复旧存档手数
+    public string moveLogCsv;      // x,y,color 序列，用于恢复旧存档手数
 }
 
 // 围棋规则引擎：提子、打劫（全局同形禁着）、自杀拦截、双停数子。
@@ -51,6 +54,11 @@ public class GoRules
     struct MoveRec { public int x, y, c; }
     readonly List<MoveRec> moveLog = new List<MoveRec>();
 
+    long initialHash;
+    int[] initialBoard;
+    public long InitialHash => initialHash;
+    public int[] InitialBoard => (int[])initialBoard?.Clone();
+
     // Zobrist 哈希表：打劫判定与 AI 搜索共用
     public static readonly long[] Zob = new long[19 * 19 * 3];
     static GoRules()
@@ -66,12 +74,14 @@ public class GoRules
     {
         Size = size;
         Board = new int[size * size];
+        initialBoard = new int[size * size];
         MoveAt = new int[size * size];
         Turn = BLACK; Passes = 0; MoveCount = 0; LastMove = -1;
         Captures[BLACK] = Captures[WHITE] = 0;
         Phase = GoPhase.Play; Result = null; Dead.Clear();
         history.Clear(); moveLog.Clear(); posHashes.Clear();
-        posHashes.Add(Hash(Board));
+        initialHash = Hash(Board);
+        posHashes.Add(initialHash);
     }
 
     // 让子局：预置黑子，白方先下。
@@ -79,10 +89,12 @@ public class GoRules
     {
         foreach (int p in points)
             if (p >= 0 && p < Board.Length) Board[p] = BLACK;
+        initialBoard = (int[])Board.Clone();
         Turn = WHITE;
         LastMove = -1;
+        initialHash = Hash(Board);
         posHashes.Clear();
-        posHashes.Add(Hash(Board));
+        posHashes.Add(initialHash);
     }
 
     public int Idx(int x, int y) { return y * Size + x; }
@@ -92,11 +104,16 @@ public class GoRules
 
     public bool GetLoggedMove(int i, out int x, out int y, out bool isPass)
     {
-        x = y = 0; isPass = false;
+        return GetLoggedMove(i, out x, out y, out _, out isPass);
+    }
+
+    public bool GetLoggedMove(int i, out int x, out int y, out int color, out bool isPass)
+    {
+        x = y = 0; color = EMPTY; isPass = false;
         if (i < 0 || i >= moveLog.Count) return false;
         var m = moveLog[i];
         isPass = m.x < 0;
-        x = m.x; y = m.y;
+        x = m.x; y = m.y; color = m.c;
         return true;
     }
 
@@ -234,7 +251,7 @@ public class GoRules
         }
         Phase = GoPhase.Play; Result = null; Dead.Clear();
         posHashes.Clear();
-        posHashes.Add(Hash(new int[Size * Size]));
+        posHashes.Add(initialHash);
         foreach (var e in history) if (e.hashAfter >= 0) posHashes.Add(e.hashAfter);
         return true;
     }
@@ -422,9 +439,11 @@ public class GoRules
         var boardCopy = (int[])Board.Clone();
         return new GoStateData
         {
+            schemaVersion = 1,
             size = Size,
             board = boardCopy,
             boardCsv = BoardToCsv(boardCopy),
+            initialBoardCsv = BoardToCsv(initialBoard ?? new int[Size * Size]),
             turn = Turn,
             passes = Passes,
             moveCount = MoveCount,
@@ -470,11 +489,17 @@ public class GoRules
         if (ply < 0) ply = 0;
         if (ply > seq.Count) ply = seq.Count;
 
+        Board = initialBoard != null ? (int[])initialBoard.Clone() : new int[Size * Size];
+        MoveAt = new int[Size * Size];
+        Captures[BLACK] = Captures[WHITE] = 0;
+        MoveCount = 0; Passes = 0; LastMove = -1;
         moveLog.Clear();
         history.Clear();
         Phase = GoPhase.Play;
         Result = null;
         Dead.Clear();
+        posHashes.Clear();
+        posHashes.Add(initialHash);
 
         for (int i = 0; i < ply; i++)
         {
@@ -533,7 +558,7 @@ public class GoRules
     public void RebuildMoveAtFromLog()
     {
         var ma = new int[Size * Size];
-        var sim = new int[Size * Size];
+        var sim = initialBoard != null ? (int[])initialBoard.Clone() : new int[Size * Size];
         int step = 0;
         foreach (var m in moveLog)
         {
@@ -549,8 +574,8 @@ public class GoRules
 
     bool LogReproducesBoard()
     {
-        if (moveLog.Count == 0) return false;
-        var sim = new int[Size * Size];
+        if (moveLog.Count == 0 && initialBoard == null) return false;
+        var sim = initialBoard != null ? (int[])initialBoard.Clone() : new int[Size * Size];
         foreach (var m in moveLog)
         {
             if (m.x < 0) continue;
@@ -578,6 +603,11 @@ public class GoRules
         for (int i = 0; i < Board.Length; i++)
         {
             if (Board[i] == EMPTY) { MoveAt[i] = 0; continue; }
+            if (initialBoard != null && initialBoard[i] == Board[i] && MoveAt[i] <= 0)
+            {
+                // 让子局初始预置黑子，不记手数
+                continue;
+            }
             stones++;
             if (MoveAt[i] > 0) { used.Add(MoveAt[i]); if (MoveAt[i] > maxAt) maxAt = MoveAt[i]; }
             else blank.Add(i);
@@ -617,6 +647,14 @@ public class GoRules
 
         Reset(d.size);
         Komi = d.komi;
+
+        int[] initB = CsvToBoard(d.initialBoardCsv, expected);
+        if (initB != null)
+        {
+            initialBoard = initB;
+            initialHash = Hash(initialBoard);
+        }
+
         System.Array.Copy(board, Board, expected);
         Turn = d.turn;
         Passes = d.passes;
@@ -635,7 +673,7 @@ public class GoRules
         EnsureMoveAtForDisplay();
         history.Clear();
         posHashes.Clear();
-        posHashes.Add(Hash(new int[Size * Size]));
+        posHashes.Add(initialHash);
         posHashes.Add(Hash(Board));
         return true;
     }
@@ -647,5 +685,24 @@ public class GoRules
         Passes = 0;
         Result = null;
         Dead.Clear();
+    }
+
+    public static int[] StarPoints(int n)
+    {
+        if (n == 19) return new[] { 3, 9, 15 };
+        if (n == 13) return new[] { 3, 6, 9 };
+        return new[] { 2, 4, 6 };
+    }
+
+    public static int[] HandicapPoints(int n, int k)
+    {
+        if (k <= 0) return new int[0];
+        int[] s = StarPoints(n);
+        // 让子顺序：右上、左下、左上、右下、天元、上边、下边、左边、右边
+        int[,] grid = { { 2, 2 }, { 0, 0 }, { 0, 2 }, { 2, 0 }, { 1, 1 }, { 1, 2 }, { 1, 0 }, { 0, 1 }, { 2, 1 } };
+        var pts = new int[k];
+        for (int i = 0; i < k && i < grid.GetLength(0); i++)
+            pts[i] = s[grid[i, 0]] + s[grid[i, 1]] * n;
+        return pts;
     }
 }
