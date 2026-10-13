@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using UnityEngine;
 
@@ -35,6 +36,23 @@ public class KifuCatalog
     public List<KifuRecord> items = new List<KifuRecord>();
 }
 
+public enum KifuSort
+{
+    PlayedAtDescending,
+    PlayedAtAscending,
+    MoveCountDescending,
+    Result
+}
+
+[Serializable]
+public class KifuQuery
+{
+    public string Keyword;
+    public string Mode;
+    public int BoardSize;
+    public KifuSort Sort = KifuSort.PlayedAtDescending;
+}
+
 // 本地 JSON 棋谱库：写入 persistentDataPath，支持按关键字查询与原子安全写入。
 public static class KifuDatabase
 {
@@ -51,14 +69,26 @@ public static class KifuDatabase
 
     public static List<KifuRecord> Query(string keyword)
     {
+        return Query(new KifuQuery { Keyword = keyword });
+    }
+
+    public static List<KifuRecord> Query(KifuQuery query)
+    {
         EnsureLoaded();
+        query = query ?? new KifuQuery();
+        string keyword = (query.Keyword ?? "").Trim();
+        string mode = (query.Mode ?? "").Trim();
         var list = new List<KifuRecord>();
-        string q = (keyword ?? "").Trim();
-        for (int i = cache.items.Count - 1; i >= 0; i--)
+        for (int i = 0; i < cache.items.Count; i++)
         {
-            var r = cache.items[i];
-            if (Matches(r, q)) list.Add(r);
+            var record = cache.items[i];
+            if (record == null || !Matches(record, keyword)) continue;
+            if (query.BoardSize > 0 && record.boardSize != query.BoardSize) continue;
+            if (!string.IsNullOrEmpty(mode) && !string.Equals(record.mode, mode, StringComparison.OrdinalIgnoreCase)) continue;
+            list.Add(record);
         }
+
+        list.Sort((a, b) => CompareRecords(a, b, query.Sort));
         return list;
     }
 
@@ -106,6 +136,87 @@ public static class KifuDatabase
         if (string.IsNullOrEmpty(rec.id)) rec.id = Guid.NewGuid().ToString("N");
         cache.items.Add(rec);
         return Save(out error);
+    }
+
+    public static bool Update(KifuRecord record)
+    {
+        EnsureLoaded();
+        if (record == null || string.IsNullOrEmpty(record.id)) return false;
+        MigrateRecord(record);
+        if (!ValidateRecord(record, out _)) return false;
+
+        for (int i = 0; i < cache.items.Count; i++)
+        {
+            if (cache.items[i] == null || cache.items[i].id != record.id) continue;
+            KifuRecord previous = cache.items[i];
+            cache.items[i] = record;
+            if (Save(out _)) return true;
+            cache.items[i] = previous;
+            return false;
+        }
+        return false;
+    }
+
+    public static bool Delete(string id)
+    {
+        EnsureLoaded();
+        if (string.IsNullOrEmpty(id)) return false;
+        for (int i = 0; i < cache.items.Count; i++)
+        {
+            if (cache.items[i] == null || cache.items[i].id != id) continue;
+            KifuRecord removed = cache.items[i];
+            cache.items.RemoveAt(i);
+            if (Save(out _)) return true;
+            cache.items.Insert(i, removed);
+            return false;
+        }
+        return false;
+    }
+
+    public static string BuildSgf(KifuRecord record)
+    {
+        record = record ?? new KifuRecord();
+        int size = record.boardSize > 0 ? record.boardSize : 19;
+        var sb = new System.Text.StringBuilder(256);
+        sb.Append("(;GM[1]FF[4]CA[UTF-8]")
+            .Append("SZ[").Append(size.ToString(CultureInfo.InvariantCulture)).Append(']')
+            .Append("KM[").Append(record.komi.ToString("0.0###", CultureInfo.InvariantCulture)).Append(']')
+            .Append("PB[").Append(EscapeSgf(record.blackName)).Append(']')
+            .Append("BR[").Append(EscapeSgf(record.blackRank)).Append(']')
+            .Append("PW[").Append(EscapeSgf(record.whiteName)).Append(']')
+            .Append("WR[").Append(EscapeSgf(record.whiteRank)).Append(']')
+            .Append("RE[").Append(EscapeSgf(record.result)).Append(']')
+            .Append("DT[").Append(EscapeSgf(record.playedAt)).Append(']')
+            .Append("C[").Append(EscapeSgf(record.description)).Append(']');
+
+        if (!string.IsNullOrEmpty(record.moveLogCsv))
+        {
+            foreach (string token in record.moveLogCsv.Split('|'))
+            {
+                if (string.IsNullOrEmpty(token)) continue;
+                string[] parts = token.Split(',');
+                if (parts.Length < 3
+                    || !int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int x)
+                    || !int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int y)
+                    || !int.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out int color))
+                    continue;
+                string side = color == 2 ? "W" : "B";
+                sb.Append(';').Append(side).Append('[');
+                if (x >= 0 && y >= 0 && x < size && y < size
+                    && x < 26 && y < 26)
+                    sb.Append((char)('a' + x)).Append((char)('a' + y));
+                sb.Append(']');
+            }
+        }
+        sb.Append(')');
+        return sb.ToString();
+    }
+
+    static string EscapeSgf(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        return value.Replace("\\", "\\\\").Replace("]", "\\]")
+            .Replace("\r", "\\r").Replace("\n", "\\n");
     }
 
     public static void UpdateAnalysis(string id, string analysisJson)
@@ -156,6 +267,40 @@ public static class KifuDatabase
     static bool Contains(string s, string q)
     {
         return !string.IsNullOrEmpty(s) && s.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    static int CompareRecords(KifuRecord a, KifuRecord b, KifuSort sort)
+    {
+        int result;
+        switch (sort)
+        {
+            case KifuSort.PlayedAtAscending:
+                result = ComparePlayedAt(a.playedAt, b.playedAt);
+                break;
+            case KifuSort.MoveCountDescending:
+                result = b.moveCount.CompareTo(a.moveCount);
+                break;
+            case KifuSort.Result:
+                result = string.Compare(a.result ?? "", b.result ?? "", StringComparison.OrdinalIgnoreCase);
+                break;
+            default:
+                result = ComparePlayedAt(b.playedAt, a.playedAt);
+                break;
+        }
+        if (result != 0) return result;
+        result = string.Compare(a.playedAt ?? "", b.playedAt ?? "", StringComparison.OrdinalIgnoreCase);
+        if (result != 0) return sort == KifuSort.PlayedAtDescending ? -result : result;
+        return string.Compare(a.id ?? "", b.id ?? "", StringComparison.OrdinalIgnoreCase);
+    }
+
+    static int ComparePlayedAt(string left, string right)
+    {
+        bool leftOk = DateTime.TryParse(left, CultureInfo.CurrentCulture, DateTimeStyles.AllowWhiteSpaces, out DateTime leftDate);
+        bool rightOk = DateTime.TryParse(right, CultureInfo.CurrentCulture, DateTimeStyles.AllowWhiteSpaces, out DateTime rightDate);
+        if (leftOk && rightOk) return leftDate.CompareTo(rightDate);
+        if (leftOk) return 1;
+        if (rightOk) return -1;
+        return string.Compare(left ?? "", right ?? "", StringComparison.OrdinalIgnoreCase);
     }
 
     static void MigrateCatalog(KifuCatalog catalog)

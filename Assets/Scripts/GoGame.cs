@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -57,6 +58,8 @@ public class GoGame : MonoBehaviour
     bool inStudyMode = false;
     bool reviewingKifu = false;
     KifuRecord reviewRec;
+    KifuRecord resumedKifuMetadata;
+    int resumedReviewPly;
     string reviewLogCsv = "";
     int reviewPly, reviewTotal;
     GameObject btnUndo, btnPass, btnResign, btnClear, btnScore, btnReviewPrev, btnReviewNext, btnReviewEnd;
@@ -104,6 +107,7 @@ public class GoGame : MonoBehaviour
     GameObject btnExitBranch;
     GameObject btnBranchUndo;
     GameObject btnStepAi;
+    GameObject btnRestoreReview;
 
     RectTransform barBlackRt, barWhiteRt;
     Text winrateBarText;
@@ -191,10 +195,20 @@ public class GoGame : MonoBehaviour
 
     // 主界面
     GameObject menuCanvas, mainPanel, aiSetupPanel, historyPanel, historyDetail, settingsPanel;
+    GameObject historyDeleteDialog;
     GameObject settingsButtonRoot;
     InputField historySearch;
     Transform historyListContent;
     Text historyDetailText;
+    Text historyDeleteText;
+    KifuRecord historyDetailRecord;
+    string pendingDeleteKifuId;
+    bool editingKifu;
+    KifuRecord editingKifuRecord;
+    List<Button> historyBoardOptions, historyModeOptions, historySortOptions;
+    int historyBoardSizeFilter;
+    string historyModeFilter = "";
+    KifuSort historySort = KifuSort.PlayedAtDescending;
     List<Button> optSize, optColor;
     Text komiValText, handiValText;
 
@@ -214,6 +228,8 @@ public class GoGame : MonoBehaviour
     GoUiNavigator uiNavigator;
     GameObject uiAppRoot, sceneBackgroundLayer, mainCanvasLayer, modalCanvasLayer, transitionLayer;
     GameObject gameUiPanel;
+    Transform gameUiContent;
+    Text reviewPositionInfoText, pvInfoText;
 
     static readonly Color Ink = new Color(0.91f, 0.86f, 0.77f);
     static readonly Color Dim = new Color(0.61f, 0.55f, 0.43f);
@@ -520,7 +536,13 @@ public class GoGame : MonoBehaviour
         historyPanel.SetActive(true);
         if (historyDetail != null) historyDetail.SetActive(false);
         if (historySearch != null) historySearch.text = "";
-        RebuildHistoryList(historySearch != null ? historySearch.text : "");
+        historyBoardSizeFilter = 0;
+        historyModeFilter = "";
+        historySort = KifuSort.PlayedAtDescending;
+        if (historyBoardOptions != null) PaintOptions(historyBoardOptions, 0);
+        if (historyModeOptions != null) PaintOptions(historyModeOptions, 0);
+        if (historySortOptions != null) PaintOptions(historySortOptions, 0);
+        RebuildHistoryList();
         if (ghostSr != null) ghostSr.enabled = false;
         RefreshStudyVisuals();
     }
@@ -806,7 +828,7 @@ public class GoGame : MonoBehaviour
         }
         cam.orthographicSize = (n + 1) / 2f + 0.7f;
         cam.transform.position = new Vector3((n - 1) / 2f, (n - 1) / 2f, -10f);
-        BuildAnalysisOverlays();
+        if (reviewingKifu) BuildAnalysisOverlays();
         UpdateBoardMarksVisuals();
     }
 
@@ -1168,6 +1190,7 @@ public class GoGame : MonoBehaviour
         vlg.childForceExpandWidth = true;
         vlg.childForceExpandHeight = false;
         var pt = pgo.transform;
+        gameUiContent = pt;
 
         MakeText(pt, "落子记录与变化推演", 15, Dim, TextAnchor.MiddleCenter);
         BuildClockUi(pt);
@@ -1197,7 +1220,6 @@ public class GoGame : MonoBehaviour
         btnResign = MakeButton(operationRow.transform, "认输", 42f, HumanResign).gameObject;
         btnClear = null;
         BuildTerminalDialogs(canvas.transform);
-        BuildReviewAiUi(pt);
         var home = MakeButton(pt, "返回主界面", 42f, ReturnToMainMenu);
         homeBtnLabel = home.GetComponentInChildren<Text>();
 
@@ -1946,20 +1968,32 @@ public class GoGame : MonoBehaviour
     {
         if (!kifuDraftReady)
         {
-            draftTitle = inStudyMode ? "打谱" : "人机对弈";
-            if (inStudyMode)
+            if (resumedKifuMetadata != null)
             {
-                draftBlack = "黑";
-                draftWhite = "白";
+                draftTitle = resumedKifuMetadata.title;
+                draftBlack = resumedKifuMetadata.blackName;
+                draftWhite = resumedKifuMetadata.whiteName;
+                draftBlackRank = resumedKifuMetadata.blackRank;
+                draftWhiteRank = resumedKifuMetadata.whiteRank;
+                draftDesc = resumedKifuMetadata.description;
             }
             else
             {
-                draftBlack = humanColor == GoRules.BLACK ? "你" : "AI";
-                draftWhite = humanColor == GoRules.WHITE ? "你" : "AI";
+                draftTitle = inStudyMode ? "打谱" : "人机对弈";
+                if (inStudyMode)
+                {
+                    draftBlack = "黑";
+                    draftWhite = "白";
+                }
+                else
+                {
+                    draftBlack = humanColor == GoRules.BLACK ? "你" : "AI";
+                    draftWhite = humanColor == GoRules.WHITE ? "你" : "AI";
+                }
+                draftBlackRank = "";
+                draftWhiteRank = "";
+                draftDesc = "";
             }
-            draftBlackRank = "";
-            draftWhiteRank = "";
-            draftDesc = "";
             kifuDraftReady = true;
         }
         kifuTitle.text = draftTitle ?? "";
@@ -1968,9 +2002,11 @@ public class GoGame : MonoBehaviour
         kifuBlackRank.text = draftBlackRank ?? "";
         kifuWhiteRank.text = draftWhiteRank ?? "";
         kifuDesc.text = draftDesc ?? "";
-        kifuTimeText.text = gameStartedAt == default
-            ? System.DateTime.Now.ToString("yyyy-MM-dd HH:mm")
-            : gameStartedAt.ToString("yyyy-MM-dd HH:mm");
+        kifuTimeText.text = resumedKifuMetadata != null && !string.IsNullOrEmpty(resumedKifuMetadata.playedAt)
+            ? resumedKifuMetadata.playedAt
+            : gameStartedAt == default
+                ? System.DateTime.Now.ToString("yyyy-MM-dd HH:mm")
+                : gameStartedAt.ToString("yyyy-MM-dd HH:mm");
         kifuResultText.text = string.IsNullOrEmpty(lastResultLine)
             ? (rules != null && !string.IsNullOrEmpty(rules.Result) ? rules.Result : "未终局")
             : lastResultLine;
@@ -1991,12 +2027,39 @@ public class GoGame : MonoBehaviour
     {
         CaptureKifuDraft();
         kifuForm.SetActive(false);
-        if (scorePopup != null) scorePopup.SetActive(true);
+        if (editingKifu)
+        {
+            editingKifu = false;
+            editingKifuRecord = null;
+            ShowHistoryPanel();
+        }
+        else if (scorePopup != null) scorePopup.SetActive(true);
     }
 
     void KifuFormConfirm()
     {
         CaptureKifuDraft();
+        if (editingKifu && editingKifuRecord != null)
+        {
+            var updated = CloneKifuRecord(editingKifuRecord);
+            updated.title = string.IsNullOrWhiteSpace(draftTitle) ? "未命名对局" : draftTitle.Trim();
+            updated.blackName = (draftBlack ?? "").Trim();
+            updated.whiteName = (draftWhite ?? "").Trim();
+            updated.blackRank = (draftBlackRank ?? "").Trim();
+            updated.whiteRank = (draftWhiteRank ?? "").Trim();
+            updated.description = (draftDesc ?? "").Trim();
+            if (!KifuDatabase.Update(updated))
+            {
+                Flash("编辑棋谱失败：棋谱不存在或保存失败");
+                return;
+            }
+            editingKifu = false;
+            editingKifuRecord = null;
+            kifuForm.SetActive(false);
+            ShowHistoryPanel();
+            Flash("棋谱信息已更新");
+            return;
+        }
         var rec = new KifuRecord
         {
             title = string.IsNullOrWhiteSpace(draftTitle) ? "未命名对局" : draftTitle.Trim(),
@@ -2008,7 +2071,8 @@ public class GoGame : MonoBehaviour
             playedAt = kifuTimeText.text,
             result = kifuResultText.text,
             boardSize = boardSize,
-            mode = inStudyMode ? "打谱" : "人机对弈",
+            mode = resumedKifuMetadata != null && !string.IsNullOrEmpty(resumedKifuMetadata.mode)
+                ? resumedKifuMetadata.mode : (inStudyMode ? "打谱" : "人机对弈"),
             moveCount = rules != null ? rules.LoggedMoveCount : 0,
             komi = rules != null ? rules.Komi : komi,
             handicap = inStudyMode ? 0 : handicap,
@@ -2019,12 +2083,42 @@ public class GoGame : MonoBehaviour
         {
             kifuForm.SetActive(false);
             if (scorePopup != null) scorePopup.SetActive(false);
+            resumedKifuMetadata = null;
+            resumedReviewPly = 0;
             Flash("棋谱已保存");
         }
         else
         {
             Flash("保存棋谱失败: " + err);
         }
+    }
+
+    static KifuRecord CloneKifuRecord(KifuRecord source)
+    {
+        if (source == null) return null;
+        return new KifuRecord
+        {
+            schemaVersion = source.schemaVersion,
+            id = source.id,
+            title = source.title,
+            blackName = source.blackName,
+            whiteName = source.whiteName,
+            blackRank = source.blackRank,
+            whiteRank = source.whiteRank,
+            description = source.description,
+            playedAt = source.playedAt,
+            result = source.result,
+            boardSize = source.boardSize,
+            mode = source.mode,
+            moveCount = source.moveCount,
+            komi = source.komi,
+            handicap = source.handicap,
+            moveLogCsv = source.moveLogCsv,
+            stateJson = source.stateJson,
+            analysisJson = source.analysisJson,
+            commentsJson = source.commentsJson,
+            branchesJson = source.branchesJson
+        };
     }
 
     void BuildKifuForm(Transform canvasRoot)
@@ -2275,7 +2369,26 @@ public class GoGame : MonoBehaviour
             MakeText(pt, "历史棋谱", 32, Ink, TextAnchor.MiddleCenter);
             MakeText(pt, "按名称、昵称、结果或描述搜索", 13, Dim, TextAnchor.MiddleCenter);
             historySearch = MakeInputField(pt, "搜索棋谱", 36f, false);
-            historySearch.onValueChanged.AddListener(RebuildHistoryList);
+            historySearch.onValueChanged.AddListener(_ => RebuildHistoryList());
+
+            MakeText(pt, "棋盘尺寸", 12, Dim, TextAnchor.MiddleLeft);
+            historyBoardOptions = MakeOptions(pt, new[] { "全部", "9路", "13路", "19路" }, index =>
+            {
+                historyBoardSizeFilter = index == 0 ? 0 : (index == 1 ? 9 : index == 2 ? 13 : 19);
+                RebuildHistoryList();
+            });
+            MakeText(pt, "模式", 12, Dim, TextAnchor.MiddleLeft);
+            historyModeOptions = MakeOptions(pt, new[] { "全部", "打谱", "人机对弈" }, index =>
+            {
+                historyModeFilter = index == 0 ? "" : (index == 1 ? "打谱" : "人机对弈");
+                RebuildHistoryList();
+            });
+            MakeText(pt, "排序", 12, Dim, TextAnchor.MiddleLeft);
+            historySortOptions = MakeOptions(pt, new[] { "日期新→旧", "日期旧→新", "手数多→少", "结果" }, index =>
+            {
+                historySort = (KifuSort)Mathf.Clamp(index, 0, 3);
+                RebuildHistoryList();
+            });
 
             var listHost = new GameObject("HistoryList");
             listHost.transform.SetParent(pt, false);
@@ -2712,18 +2825,44 @@ public class GoGame : MonoBehaviour
         historyDetailText = MakeText(card.transform, "", 16, Ink, TextAnchor.UpperLeft);
         var dle = historyDetailText.gameObject.AddComponent<LayoutElement>();
         dle.flexibleHeight = 1f;
-        dle.minHeight = 280f;
-        MakeButton(card.transform, "返回", 40f, () => historyDetail.SetActive(false));
+        dle.minHeight = 180f;
+        MakeButton(card.transform, "打开复盘", 38f, () => OpenKifuReview(historyDetailRecord));
+        MakeButton(card.transform, "导出 SGF", 38f, () => ExportKifuSgf(historyDetailRecord));
+        MakeButton(card.transform, "编辑信息", 38f, () => BeginEditKifu(historyDetailRecord));
+        MakeButton(card.transform, "删除", 38f, () => AskDeleteKifu(historyDetailRecord));
+        MakeButton(card.transform, "返回", 40f, CloseHistoryDetail);
         historyDetail.SetActive(false);
+
+        historyDeleteDialog = BuildDialogRoot(menuCanvas.transform, "HistoryDeleteDialog", out Transform deleteCard);
+        var deleteLayout = deleteCard.gameObject.AddComponent<VerticalLayoutGroup>();
+        deleteLayout.padding = new RectOffset(28, 28, 24, 22);
+        deleteLayout.spacing = 12f;
+        deleteLayout.childAlignment = TextAnchor.MiddleCenter;
+        deleteLayout.childControlWidth = true;
+        deleteLayout.childControlHeight = true;
+        deleteLayout.childForceExpandWidth = true;
+        deleteLayout.childForceExpandHeight = false;
+        MakeText(deleteCard, "删除棋谱", 26, Ink, TextAnchor.MiddleCenter);
+        historyDeleteText = MakeText(deleteCard, "", 16, Ink, TextAnchor.MiddleCenter);
+        var deleteButtons = MakeRow(deleteCard, 42f);
+        MakeButton(deleteButtons, "确认删除", 42f, ConfirmDeleteKifu);
+        MakeButton(deleteButtons, "取消", 42f, CancelDeleteKifu);
+        historyDeleteDialog.SetActive(false);
     }
 
-    void RebuildHistoryList(string keyword)
+    void RebuildHistoryList()
     {
         if (historyListContent == null) return;
         for (int i = historyListContent.childCount - 1; i >= 0; i--)
             UnityEngine.Object.Destroy(historyListContent.GetChild(i).gameObject);
 
-        var rows = KifuDatabase.Query(keyword);
+        var rows = KifuDatabase.Query(new KifuQuery
+        {
+            Keyword = historySearch != null ? historySearch.text : "",
+            BoardSize = historyBoardSizeFilter,
+            Mode = historyModeFilter,
+            Sort = historySort
+        });
         if (rows.Count == 0)
         {
             MakeText(historyListContent, "暂无棋谱", 16, Dim, TextAnchor.MiddleCenter);
@@ -2731,19 +2870,166 @@ public class GoGame : MonoBehaviour
         }
         foreach (var rec in rows)
         {
-            var captured = rec;
-            string line = $"{rec.title}  ·  {rec.result}\n{rec.blackName} vs {rec.whiteName}  ·  {rec.playedAt}";
-            var btn = MakeButton(historyListContent, line, 56f, () => OpenKifuReview(captured));
-            var t = btn.GetComponentInChildren<Text>();
-            t.fontSize = 13;
-            t.horizontalOverflow = HorizontalWrapMode.Wrap;
-            t.verticalOverflow = VerticalWrapMode.Overflow;
+            string id = rec.id;
+            var card = new GameObject("KifuCard");
+            card.transform.SetParent(historyListContent, false);
+            var cardLe = card.AddComponent<LayoutElement>();
+            cardLe.minHeight = 126f;
+            cardLe.preferredHeight = 126f;
+            var cardImage = card.AddComponent<Image>();
+            cardImage.color = new Color(0.15f, 0.12f, 0.09f, 1f);
+            var cardLayout = card.AddComponent<VerticalLayoutGroup>();
+            cardLayout.padding = new RectOffset(12, 12, 8, 8);
+            cardLayout.spacing = 4f;
+            cardLayout.childControlWidth = true;
+            cardLayout.childControlHeight = true;
+            cardLayout.childForceExpandWidth = true;
+            cardLayout.childForceExpandHeight = false;
+
+            var info = MakeText(card.transform, HistoryCardText(rec), 13, Ink, TextAnchor.UpperLeft);
+            info.supportRichText = false;
+            var infoLe = info.gameObject.AddComponent<LayoutElement>();
+            infoLe.flexibleHeight = 1f;
+            infoLe.minHeight = 64f;
+            var actions = MakeRow(card.transform, 34f);
+            MakeButton(actions, "打开复盘", 34f, () => OpenKifuReviewById(id));
+            MakeButton(actions, "导出 SGF", 34f, () => ExportKifuSgfById(id));
+            MakeButton(actions, "编辑信息", 34f, () => BeginEditKifuById(id));
+            var deleteButton = MakeButton(actions, "删除", 34f, () => AskDeleteKifuById(id));
+            var deleteImage = deleteButton.GetComponent<Image>();
+            if (deleteImage != null) deleteImage.color = new Color(0.38f, 0.18f, 0.14f, 1f);
         }
     }
 
     void OpenHistoryDetail(KifuRecord rec)
     {
-        OpenKifuReview(rec);
+        if (rec == null || historyDetail == null) return;
+        historyDetailRecord = FindKifu(rec.id);
+        if (historyDetailRecord == null) return;
+        historyDetailText.text = HistoryCardText(historyDetailRecord);
+        historyPanel.SetActive(false);
+        historyDetail.SetActive(true);
+    }
+
+    string HistoryCardText(KifuRecord rec)
+    {
+        string title = string.IsNullOrEmpty(rec.title) ? "未命名对局" : rec.title;
+        string result = string.IsNullOrEmpty(rec.result) ? "未终局" : rec.result;
+        return $"{title}\n黑方：{rec.blackName}（{rec.blackRank}）  白方：{rec.whiteName}（{rec.whiteRank}）\n" +
+            $"{rec.boardSize}路  ·  {rec.moveCount}手  ·  {rec.playedAt}  ·  {rec.mode}\n结果：{result}";
+    }
+
+    KifuRecord FindKifu(string id)
+    {
+        if (string.IsNullOrEmpty(id)) return null;
+        foreach (var rec in KifuDatabase.All())
+            if (rec != null && rec.id == id) return rec;
+        return null;
+    }
+
+    void OpenKifuReviewById(string id)
+    {
+        OpenKifuReview(FindKifu(id));
+    }
+
+    void ExportKifuSgfById(string id)
+    {
+        ExportKifuSgf(FindKifu(id));
+    }
+
+    void ExportKifuSgf(KifuRecord rec)
+    {
+        if (rec == null) { Flash("棋谱不存在或已删除"); return; }
+        try
+        {
+            string name = SafeKifuFileName(rec.title);
+            string path = Path.Combine(Application.persistentDataPath, name + "_" + rec.id + ".sgf");
+            File.WriteAllText(path, KifuDatabase.BuildSgf(rec), System.Text.Encoding.UTF8);
+            Flash("SGF 已导出：" + path);
+        }
+        catch (System.Exception ex)
+        {
+            Flash("SGF 导出失败：" + ex.Message);
+        }
+    }
+
+    static string SafeKifuFileName(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return "kifu";
+        var chars = value.ToCharArray();
+        for (int i = 0; i < chars.Length; i++)
+            if (char.IsControl(chars[i]) || "<>:\"/\\|?*".IndexOf(chars[i]) >= 0) chars[i] = '_';
+        return new string(chars).Trim().TrimEnd('.');
+    }
+
+    void BeginEditKifuById(string id)
+    {
+        BeginEditKifu(FindKifu(id));
+    }
+
+    void BeginEditKifu(KifuRecord rec)
+    {
+        if (rec == null || kifuForm == null) { Flash("棋谱不存在或已删除"); return; }
+        editingKifu = true;
+        editingKifuRecord = CloneKifuRecord(rec);
+        kifuDraftReady = true;
+        kifuTitle.text = editingKifuRecord.title ?? "";
+        kifuBlack.text = editingKifuRecord.blackName ?? "";
+        kifuWhite.text = editingKifuRecord.whiteName ?? "";
+        kifuBlackRank.text = editingKifuRecord.blackRank ?? "";
+        kifuWhiteRank.text = editingKifuRecord.whiteRank ?? "";
+        kifuDesc.text = editingKifuRecord.description ?? "";
+        kifuTimeText.text = editingKifuRecord.playedAt ?? "";
+        kifuResultText.text = editingKifuRecord.result ?? "未终局";
+        historyDetail.SetActive(false);
+        historyPanel.SetActive(false);
+        kifuForm.SetActive(true);
+    }
+
+    void AskDeleteKifuById(string id)
+    {
+        AskDeleteKifu(FindKifu(id));
+    }
+
+    void AskDeleteKifu(KifuRecord rec)
+    {
+        if (rec == null || historyDeleteDialog == null) { Flash("棋谱不存在或已删除"); return; }
+        pendingDeleteKifuId = rec.id;
+        historyDeleteText.text = $"确定删除“{rec.title}”吗？\n删除后无法从历史列表恢复。";
+        historyDeleteDialog.SetActive(true);
+    }
+
+    void ConfirmDeleteKifu()
+    {
+        if (string.IsNullOrEmpty(pendingDeleteKifuId)) return;
+        string id = pendingDeleteKifuId;
+        pendingDeleteKifuId = null;
+        if (!KifuDatabase.Delete(id))
+        {
+            historyDeleteDialog.SetActive(false);
+            Flash("删除失败：棋谱不存在或保存失败");
+            return;
+        }
+        historyDeleteDialog.SetActive(false);
+        historyDetailRecord = null;
+        if (historyDetail != null) historyDetail.SetActive(false);
+        historyPanel.SetActive(true);
+        RebuildHistoryList();
+        Flash("棋谱已删除");
+    }
+
+    void CancelDeleteKifu()
+    {
+        pendingDeleteKifuId = null;
+        if (historyDeleteDialog != null) historyDeleteDialog.SetActive(false);
+    }
+
+    void CloseHistoryDetail()
+    {
+        historyDetailRecord = null;
+        historyDetail.SetActive(false);
+        historyPanel.SetActive(true);
+        RebuildHistoryList();
     }
 
     void OpenKifuReview(KifuRecord rec)
@@ -2815,11 +3101,52 @@ public class GoGame : MonoBehaviour
         if (historyDetail != null) historyDetail.SetActive(false);
         if (historyPanel != null) historyPanel.SetActive(false);
         menuCanvas.SetActive(false);
+        if (reviewAiRoot == null && gameUiContent != null)
+            BuildReviewAiUi(gameUiContent);
         if (uiNavigator != null) uiNavigator.Show(GoUiPage.Review);
         HideScorePopup();
         BuildBoard();
         ReviewSeek(reviewPly);
         Flash($"{rec.title}  ·  {rec.blackName} vs {rec.whiteName}");
+    }
+
+    void RestoreReviewToPlay()
+    {
+        if (!reviewingKifu || rules == null) return;
+        GoStateData state = rules.ExportState();
+        resumedReviewPly = reviewPly;
+        resumedKifuMetadata = CloneKifuRecord(reviewRec);
+
+        if (isAnalyzingFullGame) GoKataGo.CancelAnalysis();
+        isAnalyzingFullGame = false;
+        if (fullAnalysisCo != null) { StopCoroutine(fullAnalysisCo); fullAnalysisCo = null; }
+        if (curAnalysisCo != null) { StopCoroutine(curAnalysisCo); curAnalysisCo = null; }
+        StopPlayClock();
+
+        reviewingKifu = false;
+        inStudyMode = false;
+        vsAI = false;
+        inBranchMode = false;
+        reviewRec = null;
+        reviewLogCsv = "";
+        boardSize = state.size > 0 ? state.size : boardSize;
+        if (!rules.ImportState(state))
+        {
+            Flash("恢复实战失败：局面存档无效");
+            return;
+        }
+        rules.ResumeRecording();
+        rules.EnsureMoveAtForDisplay();
+        inMenu = false;
+        menuCanvas.SetActive(false);
+        if (uiNavigator != null) uiNavigator.Show(GoUiPage.Playing);
+        BuildBoard();
+        gameStartedAt = System.DateTime.Now;
+        lastResultLine = "";
+        kifuDraftReady = false;
+        StartPlayClock();
+        Refresh();
+        Flash($"已恢复第 {resumedReviewPly} 手，轮到{rules.Turn == GoRules.BLACK ? "黑" : "白"}方");
     }
 
     void ReviewSeek(int ply)
@@ -3678,6 +4005,10 @@ public class GoGame : MonoBehaviour
         SyncMarkToolButtons();
 
         // 2. 胜率与目数信息文本
+        reviewPositionInfoText = MakeText(reviewAiRoot.transform, "局面信息：暂无", 12, Dim, TextAnchor.MiddleLeft);
+        var posLe = reviewPositionInfoText.gameObject.AddComponent<LayoutElement>();
+        posLe.preferredHeight = 18f;
+
         winrateInfoText = MakeText(reviewAiRoot.transform, "胜率分析", 12, Ink, TextAnchor.MiddleCenter);
         winrateInfoText.supportRichText = true;
         var infoLe = winrateInfoText.gameObject.AddComponent<LayoutElement>();
@@ -3754,11 +4085,15 @@ public class GoGame : MonoBehaviour
         trigger.triggers.Add(dragEntry);
 
         // 5. 候选点详情展示文本
-        candInfoText = MakeText(reviewAiRoot.transform, "开启「AI推演」可查看候选点与变化图", 12, Ink, TextAnchor.MiddleLeft);
+        candInfoText = MakeText(reviewAiRoot.transform, "暂无分析", 12, Ink, TextAnchor.MiddleLeft);
         candInfoText.supportRichText = true;
         var candInfoLe = candInfoText.gameObject.AddComponent<LayoutElement>();
         candInfoLe.preferredHeight = 36f;
         candInfoLe.minHeight = 36f;
+        pvInfoText = MakeText(reviewAiRoot.transform, "PV：暂无分析", 12, Ink, TextAnchor.MiddleLeft);
+        pvInfoText.supportRichText = true;
+        var pvLe = pvInfoText.gameObject.AddComponent<LayoutElement>();
+        pvLe.preferredHeight = 24f;
 
         // 6. 分支推演控制按钮行：[推演一步] [悔一手] [恢复实战]
         var branchRow = new GameObject("BranchRow");
@@ -3787,6 +4122,10 @@ public class GoGame : MonoBehaviour
 
         btnBranchUndo.SetActive(false);
         btnExitBranch.SetActive(false);
+        var btnRestore = MakeButton(branchRow.transform, "恢复实战", 32f, RestoreReviewToPlay);
+        btnRestoreReview = btnRestore.gameObject;
+        var restoreImg = btnRestoreReview.GetComponent<Image>();
+        if (restoreImg != null) restoreImg.color = new Color(0.18f, 0.38f, 0.22f, 1f);
 
         // 6.5 变化分支管理按钮行：[新建变化] [展开/收起] [切换变化] [删除变化]
         var varRow = new GameObject("VarRow");
