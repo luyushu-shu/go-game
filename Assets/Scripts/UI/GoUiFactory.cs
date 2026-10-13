@@ -72,7 +72,7 @@ public sealed class GoUiFactory : MonoBehaviour
         var text = go.AddComponent<Text>();
         text.font = theme.FallbackFont;
         text.text = value ?? string.Empty;
-        text.fontSize = fontSize;
+        text.fontSize = Mathf.Max(fontSize, Mathf.RoundToInt(GoUiTheme.MinimumBodyFontSize));
         text.color = color;
         text.alignment = anchor;
         text.horizontalOverflow = HorizontalWrapMode.Wrap;

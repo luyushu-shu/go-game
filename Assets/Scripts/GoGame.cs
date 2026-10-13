@@ -242,6 +242,7 @@ public class GoGame : MonoBehaviour
 
     // 主界面
     GameObject menuCanvas, mainPanel, aiSetupPanel, historyPanel, historyDetail, settingsPanel;
+    RectTransform menuSafeArea;
     GameObject historyDeleteDialog;
     GameObject settingsButtonRoot;
     InputField historySearch;
@@ -277,6 +278,7 @@ public class GoGame : MonoBehaviour
     GameObject gameUiPanel;
     Transform gameUiContent;
     Text reviewPositionInfoText, pvInfoText;
+    int lastResponsiveWidth = -1, lastResponsiveHeight = -1;
 
     static readonly Color Ink = new Color(0.91f, 0.86f, 0.77f);
     static readonly Color Dim = new Color(0.61f, 0.55f, 0.43f);
@@ -323,6 +325,7 @@ public class GoGame : MonoBehaviour
         BuildBoard();
         BuildUI();
         BuildMenu();
+        ApplyResponsiveLayout();
         ShowMainMenu();
     }
 
@@ -747,6 +750,8 @@ public class GoGame : MonoBehaviour
     void Update()
     {
         if (cam == null || rules == null) return;
+        if (Screen.width != lastResponsiveWidth || Screen.height != lastResponsiveHeight)
+            ApplyResponsiveLayout();
         UpdateClockPauseState();
         clockController?.Tick(Time.unscaledDeltaTime);
         if (inMenu)
@@ -1209,9 +1214,7 @@ public class GoGame : MonoBehaviour
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
         canvas.sortingOrder = sortingOrder;
         var scaler = layer.AddComponent<CanvasScaler>();
-        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920f, 1080f);
-        scaler.matchWidthOrHeight = 0.5f;
+        ConfigureCanvasScaler(scaler);
         if (raycast) layer.AddComponent<GraphicRaycaster>();
         return layer;
     }
@@ -1237,8 +1240,8 @@ public class GoGame : MonoBehaviour
         prt.anchorMin = new Vector2(1f, 0f);
         prt.anchorMax = new Vector2(1f, 1f);
         prt.pivot = new Vector2(1f, 0.5f);
-        prt.sizeDelta = new Vector2(280f, -48f);
-        prt.anchoredPosition = new Vector2(-28f, 0f);
+        prt.sizeDelta = new Vector2(GameSidebarWidth(), -2f * GoUiTheme.SafeAreaMarginY);
+        prt.anchoredPosition = new Vector2(-GoUiTheme.SafeAreaMarginX, 0f);
 
         var vlg = pgo.AddComponent<VerticalLayoutGroup>();
         vlg.padding = new RectOffset(12, 12, 14, 14);
@@ -1257,7 +1260,7 @@ public class GoGame : MonoBehaviour
         BuildCommentModuleUi(pt);
         turnText = MakeText(pt, "", 14, Ink, TextAnchor.MiddleCenter);
         msgText = MakeText(pt, "", 14, Accent, TextAnchor.MiddleCenter);
-        studySaveStatusText = MakeText(pt, "", 12, new Color(0.435f, 0.604f, 0.510f, 1f), TextAnchor.MiddleCenter);
+        studySaveStatusText = MakeText(pt, "", 13, new Color(0.435f, 0.604f, 0.510f, 1f), TextAnchor.MiddleCenter);
         studySaveStatusText.gameObject.SetActive(false);
 
         var operationRow = new GameObject("OperationRow");
@@ -1266,7 +1269,7 @@ public class GoGame : MonoBehaviour
         operationLayout.preferredHeight = 42f;
         operationLayout.minHeight = 42f;
         var operationGroup = operationRow.AddComponent<HorizontalLayoutGroup>();
-        operationGroup.spacing = 5f;
+        operationGroup.spacing = 4f;
         operationGroup.childAlignment = TextAnchor.MiddleCenter;
         operationGroup.childControlWidth = true;
         operationGroup.childControlHeight = true;
@@ -1323,6 +1326,7 @@ public class GoGame : MonoBehaviour
         bg.color = new Color(0.08f, 0.06f, 0.04f, 0.95f);
         var scroll = scrollGo.AddComponent<ScrollRect>();
         scroll.horizontal = false;
+        scroll.vertical = true;
         scroll.movementType = ScrollRect.MovementType.Clamped;
         scroll.scrollSensitivity = 24f;
         scrollGo.AddComponent<RectMask2D>();
@@ -1384,12 +1388,12 @@ public class GoGame : MonoBehaviour
         var hle = headerRow.AddComponent<LayoutElement>();
         hle.preferredHeight = 22f;
 
-        commentModuleTitle = MakeText(headerRow.transform, "📝 批注：实战", 12, Ink, TextAnchor.MiddleLeft);
+        commentModuleTitle = MakeText(headerRow.transform, "📝 批注：实战", 13, Ink, TextAnchor.MiddleLeft);
         var tLe = commentModuleTitle.gameObject.AddComponent<LayoutElement>();
         tLe.flexibleWidth = 1f;
         tLe.minWidth = 110f;
 
-        commentSaveIndicator = MakeText(headerRow.transform, "", 11, new Color(0.45f, 0.82f, 0.45f), TextAnchor.MiddleRight);
+        commentSaveIndicator = MakeText(headerRow.transform, "", 13, new Color(0.45f, 0.82f, 0.45f), TextAnchor.MiddleRight);
         var iLe = commentSaveIndicator.gameObject.AddComponent<LayoutElement>();
         iLe.preferredWidth = 45f;
 
@@ -1429,7 +1433,7 @@ public class GoGame : MonoBehaviour
         trt.offsetMax = new Vector2(-6f, -4f);
         var textComp = textGo.AddComponent<Text>();
         textComp.font = font;
-        textComp.fontSize = 12;
+        textComp.fontSize = 13;
         textComp.color = Ink;
         textComp.supportRichText = false;
         textComp.alignment = TextAnchor.UpperLeft;
@@ -1443,7 +1447,7 @@ public class GoGame : MonoBehaviour
         phrt.offsetMax = new Vector2(-6f, -4f);
         var phComp = phGo.AddComponent<Text>();
         phComp.font = font;
-        phComp.fontSize = 12;
+        phComp.fontSize = 13;
         phComp.color = new Color(0.5f, 0.45f, 0.38f, 0.7f);
         phComp.text = "在此输入当前步的分析与批注…";
         phComp.fontStyle = FontStyle.Italic;
@@ -2312,9 +2316,7 @@ public class GoGame : MonoBehaviour
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
         canvas.sortingOrder = 20;
         var scaler = menuCanvas.AddComponent<CanvasScaler>();
-        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920f, 1080f);
-        scaler.matchWidthOrHeight = 0.5f;
+        ConfigureCanvasScaler(scaler);
         menuCanvas.AddComponent<GraphicRaycaster>();
 
         var bg = new GameObject("Bg");
@@ -2324,6 +2326,14 @@ public class GoGame : MonoBehaviour
         var brt = bg.GetComponent<RectTransform>();
         brt.anchorMin = Vector2.zero; brt.anchorMax = Vector2.one;
         brt.sizeDelta = Vector2.zero; brt.anchoredPosition = Vector2.zero;
+
+        var safeArea = new GameObject("SafeArea");
+        safeArea.transform.SetParent(menuCanvas.transform, false);
+        menuSafeArea = safeArea.AddComponent<RectTransform>();
+        menuSafeArea.anchorMin = Vector2.zero;
+        menuSafeArea.anchorMax = Vector2.one;
+        menuSafeArea.offsetMin = new Vector2(GoUiTheme.SafeAreaMarginX, GoUiTheme.SafeAreaMarginY);
+        menuSafeArea.offsetMax = new Vector2(-GoUiTheme.SafeAreaMarginX, -GoUiTheme.SafeAreaMarginY);
 
         mainPanel = BuildMenuPanel("MainMenuPage", 420f, 600f, pt =>
         {
@@ -2461,6 +2471,7 @@ public class GoGame : MonoBehaviour
             listBg.color = new Color(0.08f, 0.06f, 0.04f, 0.95f);
             var scroll = listHost.AddComponent<ScrollRect>();
             scroll.horizontal = false;
+            scroll.vertical = true;
             scroll.movementType = ScrollRect.MovementType.Clamped;
             scroll.scrollSensitivity = 28f;
             listHost.AddComponent<RectMask2D>();
@@ -2674,7 +2685,8 @@ public class GoGame : MonoBehaviour
 
     void BuildSettingsButton()
     {
-        var button = MakeButton(menuCanvas.transform, "⚙ 设置", 40f, ShowSettings);
+        var button = MakeButton(menuSafeArea != null ? menuSafeArea : menuCanvas.transform,
+            "⚙ 设置", 40f, ShowSettings);
         settingsButtonRoot = button.gameObject;
         SetFixedWidth(button, 116f);
         var rect = button.GetComponent<RectTransform>();
@@ -2685,7 +2697,8 @@ public class GoGame : MonoBehaviour
 
     void BuildVersionLabel()
     {
-        var version = MakeText(menuCanvas.transform, "版本号", 13, Dim, TextAnchor.MiddleLeft);
+        var version = MakeText(menuSafeArea != null ? menuSafeArea : menuCanvas.transform,
+            "版本号", 13, Dim, TextAnchor.MiddleLeft);
         version.text = "版本 " + Application.version;
         var rect = version.rectTransform;
         rect.anchorMin = rect.anchorMax = new Vector2(0f, 0f);
@@ -2697,7 +2710,7 @@ public class GoGame : MonoBehaviour
     void BuildVolumeQuickControl()
     {
         var root = new GameObject("VolumeQuickControl");
-        root.transform.SetParent(menuCanvas.transform, false);
+        root.transform.SetParent(menuSafeArea != null ? menuSafeArea : menuCanvas.transform, false);
         var rootRect = root.AddComponent<RectTransform>();
         rootRect.anchorMin = rootRect.anchorMax = new Vector2(1f, 0f);
         rootRect.pivot = new Vector2(1f, 0f);
@@ -3485,13 +3498,13 @@ public class GoGame : MonoBehaviour
     GameObject BuildMenuPanel(string name, float width, float height, System.Action<Transform> build)
     {
         var panel = new GameObject(name);
-        panel.transform.SetParent(menuCanvas.transform, false);
+        panel.transform.SetParent(menuSafeArea != null ? menuSafeArea : menuCanvas.transform, false);
         var pimg = panel.AddComponent<Image>();
         pimg.color = new Color(0.14f, 0.11f, 0.08f, 1f);
         var prt = panel.GetComponent<RectTransform>();
         prt.anchorMin = prt.anchorMax = new Vector2(0.5f, 0.5f);
         prt.pivot = new Vector2(0.5f, 0.5f);
-        prt.sizeDelta = new Vector2(width, height);
+        prt.sizeDelta = new Vector2(width, PanelHeightForScreen(height));
         prt.anchoredPosition = Vector2.zero;
 
         var vlg = panel.AddComponent<VerticalLayoutGroup>();
@@ -3506,11 +3519,77 @@ public class GoGame : MonoBehaviour
         return panel;
     }
 
+    static void ConfigureCanvasScaler(CanvasScaler scaler)
+    {
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = GoUiTheme.ReferenceResolution;
+        scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+        scaler.matchWidthOrHeight = 0.5f;
+    }
+
+    static float PanelHeightForScreen(float requestedHeight)
+    {
+        if (Screen.height <= 0) return requestedHeight;
+        float safeHeight = Mathf.Max(480f, Screen.height - 2f * GoUiTheme.SafeAreaMarginY);
+        return Mathf.Min(requestedHeight, safeHeight);
+    }
+
+    static void FitPanelHeight(GameObject panel, float requestedHeight)
+    {
+        if (panel == null) return;
+        var rect = panel.GetComponent<RectTransform>();
+        if (rect != null) rect.sizeDelta = new Vector2(rect.sizeDelta.x,
+            PanelHeightForScreen(requestedHeight));
+    }
+
     static void StyleAccentLabel(Button btn)
     {
         var t = btn.GetComponentInChildren<Text>();
         t.color = new Color(0.11f, 0.09f, 0.07f);
         t.fontSize = 18;
+    }
+
+    static float GameSidebarWidth()
+    {
+        if (Screen.width <= 1366) return GoUiTheme.CompactSidebarWidth;
+        if (Screen.width >= 1920) return GoUiTheme.DesktopSidebarWidth;
+        return Mathf.Lerp(GoUiTheme.CompactSidebarWidth, GoUiTheme.DesktopSidebarWidth,
+            Mathf.InverseLerp(1366f, 1920f, Screen.width));
+    }
+
+    void ApplyResponsiveLayout()
+    {
+        lastResponsiveWidth = Screen.width;
+        lastResponsiveHeight = Screen.height;
+
+        if (menuSafeArea != null)
+        {
+            menuSafeArea.anchorMin = Vector2.zero;
+            menuSafeArea.anchorMax = Vector2.one;
+            menuSafeArea.offsetMin = new Vector2(GoUiTheme.SafeAreaMarginX, GoUiTheme.SafeAreaMarginY);
+            menuSafeArea.offsetMax = new Vector2(-GoUiTheme.SafeAreaMarginX, -GoUiTheme.SafeAreaMarginY);
+        }
+
+        FitPanelHeight(mainPanel, 600f);
+        FitPanelHeight(aiSetupPanel, 860f);
+        FitPanelHeight(historyPanel, 680f);
+        FitPanelHeight(settingsPanel, 620f);
+
+        if (gameUiPanel != null)
+        {
+            var rect = gameUiPanel.GetComponent<RectTransform>();
+            rect.sizeDelta = new Vector2(GameSidebarWidth(),
+                -2f * GoUiTheme.SafeAreaMarginY);
+            rect.anchoredPosition = new Vector2(-GoUiTheme.SafeAreaMarginX, 0f);
+        }
+
+        if (cam != null)
+        {
+            float availableWidth = Mathf.Max(1f,
+                Screen.width - GameSidebarWidth() - 2f * GoUiTheme.SafeAreaMarginX);
+            cam.rect = new Rect(0f, 0f,
+                Mathf.Clamp01(availableWidth / Mathf.Max(1f, Screen.width)), 1f);
+        }
     }
 
     void SyncAiSetup()
@@ -3763,7 +3842,9 @@ public class GoGame : MonoBehaviour
         var go = new GameObject("Label");
         go.transform.SetParent(parent, false);
         var t = go.AddComponent<Text>();
-        t.font = font; t.text = content; t.fontSize = fontSize; t.color = color;
+        t.font = font; t.text = content;
+        t.fontSize = Mathf.Max(fontSize, Mathf.RoundToInt(GoUiTheme.MinimumBodyFontSize));
+        t.color = color;
         t.alignment = anchor;
         t.horizontalOverflow = HorizontalWrapMode.Wrap;
         t.verticalOverflow = VerticalWrapMode.Overflow;
@@ -4149,11 +4230,11 @@ public class GoGame : MonoBehaviour
         SyncMarkToolButtons();
 
         // 2. 胜率与目数信息文本
-        reviewPositionInfoText = MakeText(reviewAiRoot.transform, "局面信息：暂无", 12, Dim, TextAnchor.MiddleLeft);
+        reviewPositionInfoText = MakeText(reviewAiRoot.transform, "局面信息：暂无", 13, Dim, TextAnchor.MiddleLeft);
         var posLe = reviewPositionInfoText.gameObject.AddComponent<LayoutElement>();
         posLe.preferredHeight = 18f;
 
-        winrateInfoText = MakeText(reviewAiRoot.transform, "胜率分析", 12, Ink, TextAnchor.MiddleCenter);
+        winrateInfoText = MakeText(reviewAiRoot.transform, "胜率分析", 13, Ink, TextAnchor.MiddleCenter);
         winrateInfoText.supportRichText = true;
         var infoLe = winrateInfoText.gameObject.AddComponent<LayoutElement>();
         infoLe.preferredHeight = 18f;
@@ -4193,7 +4274,7 @@ public class GoGame : MonoBehaviour
         tGo.transform.SetParent(barGo.transform, false);
         winrateBarText = tGo.AddComponent<Text>();
         winrateBarText.font = font;
-        winrateBarText.fontSize = 11;
+        winrateBarText.fontSize = 13;
         winrateBarText.color = Color.white;
         winrateBarText.alignment = TextAnchor.MiddleCenter;
         winrateBarText.horizontalOverflow = HorizontalWrapMode.Overflow;
@@ -4231,12 +4312,12 @@ public class GoGame : MonoBehaviour
         trigger.triggers.Add(dragEntry);
 
         // 5. 候选点详情展示文本
-        candInfoText = MakeText(reviewAiRoot.transform, "暂无分析", 12, Ink, TextAnchor.MiddleLeft);
+        candInfoText = MakeText(reviewAiRoot.transform, "暂无分析", 13, Ink, TextAnchor.MiddleLeft);
         candInfoText.supportRichText = true;
         var candInfoLe = candInfoText.gameObject.AddComponent<LayoutElement>();
         candInfoLe.preferredHeight = 36f;
         candInfoLe.minHeight = 36f;
-        pvInfoText = MakeText(reviewAiRoot.transform, "PV：暂无分析", 12, Ink, TextAnchor.MiddleLeft);
+        pvInfoText = MakeText(reviewAiRoot.transform, "PV：暂无分析", 13, Ink, TextAnchor.MiddleLeft);
         pvInfoText.supportRichText = true;
         var pvLe = pvInfoText.gameObject.AddComponent<LayoutElement>();
         pvLe.preferredHeight = 24f;

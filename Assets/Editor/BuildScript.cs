@@ -9,7 +9,7 @@ public static class BuildScript
     [MenuItem("Build/Windows EXE")]
     public static void BuildWindows()
     {
-        PlayerSettings.productName = "围棋";
+        PlayerSettings.productName = "棋弈有道";
         PlayerSettings.companyName = "luyus";
         AssetDatabase.Refresh();
 

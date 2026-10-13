@@ -5,6 +5,13 @@ public enum GoButtonStyle { Primary, Secondary, Danger, Icon }
 
 public sealed class GoUiTheme : ScriptableObject
 {
+    public static readonly Vector2 ReferenceResolution = new Vector2(1920f, 1080f);
+    public const float SafeAreaMarginX = 120f;
+    public const float SafeAreaMarginY = 70f;
+    public const float MinimumBodyFontSize = 13f;
+    public const float CompactSidebarWidth = 390f;
+    public const float DesktopSidebarWidth = 360f;
+
     public Color Ink900 = new Color(0.090f, 0.075f, 0.059f, 1f);
     public Color Ink800 = new Color(0.129f, 0.102f, 0.078f, 1f);
     public Color Ink700 = new Color(0.169f, 0.129f, 0.094f, 1f);

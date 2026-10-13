@@ -1,6 +1,6 @@
-# 围棋 · Go Game
+# 棋弈有道
 
-用团结引擎（Tuanjie，兼容 Unity 2022.3 LTS）开发的单机围棋。棋盘、棋子与界面全部程序化生成，无需美术资源。
+用团结引擎（Tuanjie，兼容 Unity 2022.3 LTS）开发的 Windows 单机围棋。运行时从空场景自举，产品名为“棋弈有道”。
 
 ## 功能
 
@@ -53,12 +53,43 @@
 
 ## 运行
 
-- **直接玩**：到 [Releases](../../releases) 下载 Windows 打包版，解压运行 `GoGame.exe`
-- **编辑器**：用团结引擎 2022.3.62t14（或 Unity 2022.3 LTS）打开本工程，按 Play 进入主界面（`Assets/Editor/AutoPlay.cs` 控制自动运行，不需要可删）
+- **Windows 构建版**：运行 `Builds/Windows/GoGame.exe`。
+- **编辑器启动入口**：用 Tuanjie 2022.3.62t14（或 Unity 2022.3 LTS）打开工程，打开 `Assets/Scenes/Main.unity` 后按 Play；空场景会自动生成完整运行时界面。
+- `Assets/Editor/AutoPlay.cs` 仅用于编辑器自动运行，可按需保留或移除。
+
+## 主菜单入口
+
+主菜单固定提供四个入口：**打谱**、**人机对弈**、**历史棋谱**、**退出**。右上角进入设置，右下角提供主音量/静音快捷控制。
+
+## 时间与读秒
+
+- 本时选项：无限制、5 分钟、1 小时、2 小时、自定义；自定义范围为 **1–600 分钟**，0 和 601 分钟拒绝保存。
+- 读秒选项：无、3×30 秒、5×30 秒、5×60 秒、自定义；自定义为 **1–20 段、每段 5–600 秒**。
+- 对局右侧四按钮保持单行：悔棋、停一手、数目、认输；复盘页另提供上一手、下一手、回到终局。
+
+## 棋谱位置与兼容性
+
+- 对局草稿：Unity `Application.persistentDataPath` 下的 `study_progress.json`。
+- 历史棋谱库：`Application.persistentDataPath` 下的 `kifu_db.json`；导出的 SGF 位于同目录的 `KifuExports/`。
+- 读取旧 JSON 时，缺失的 `mode`、`result`、`stateJson` 等可选字段保持兼容，不会因缺字段导致启动异常。
 
 ## 测试
 
-工程使用 EditMode 测试验证纯 C# 规则与时间逻辑，UI 和构建在后续阶段使用 Play Mode 手工矩阵验证。
+### EditMode 测试
+
+测试资产位于 `Assets/Tests/Editor/`，包括时间、计时、结果、棋盘主题、SGF 和 UI token 测试。使用编辑器菜单 `Window → General → Test Runner` 选择 EditMode；也可使用命令行：
+
+```powershell
+Tuanjie.exe -batchmode -nographics -projectPath . -runTests -testPlatform EditMode -testResults Logs/editmode-results.xml -logFile Logs/editmode.log -quit
+```
+
+### 项目自定义回归
+
+规则、存档和 AI 的既有自定义入口为 `TestRunner.RunAllTests`：
+
+```powershell
+Tuanjie.exe -batchmode -nographics -projectPath . -executeMethod TestRunner.RunAllTests -logFile Logs/custom-tests.log
+```
 
 ## 操作
 
@@ -66,7 +97,7 @@
 
 对局右侧：落子记录、悔棋、停一手、认输、清空、数目、返回。打谱与人机左下角可开关手数 / 坐标 / 形势。复盘时用上一手、下一手、终局浏览棋谱，可开启「AI推演」查看推荐选点与变化图，或点击「全局分析」生成整盘胜率走势折线图。
 
-## 打包
+## Windows 构建
 
 编辑器菜单 `Build → Windows EXE`，或命令行：
 
@@ -74,7 +105,11 @@
 Tuanjie.exe -batchmode -quit -projectPath . -executeMethod BuildScript.BuildWindows -logFile build.log
 ```
 
-产物在 `Builds/Windows/`。
+产物固定为 `Builds/Windows/GoGame.exe`。构建脚本会自动生成并保存 `Assets/Scenes/Main.unity`、写入 Build Settings，并在成功日志输出 `BUILD OK`。
+
+## 当前环境限制
+
+本仓库的批处理环境可执行脚本编译、项目自定义 TestRunner、静态回归矩阵和 Windows 构建；当前受管 headless 编辑器不会可靠执行标准 EditMode XML runner（可能出现 `Scan Filter Count: 0` 且无 XML），因此不能以此冒充 NUnit 交互通过。当前环境也没有可用的交互式 Game/Play Mode 输入通道，1920×1080、1600×900、1366×768 的人工点击验收、真实音频播放和干净 Windows 无编辑器启动验收需要在相应桌面环境补做。
 
 ## 代码结构
 
