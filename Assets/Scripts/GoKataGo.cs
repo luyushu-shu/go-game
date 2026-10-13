@@ -48,6 +48,13 @@ public class KataGameAnalysis
 // 通过 GTP 调用本机 KataGo（Tools/KataGo）。
 public static class GoKataGo
 {
+    public enum AvailabilityStatus
+    {
+        Ready,
+        ProgramMissing,
+        ModelMissing
+    }
+
     public static int ResultX, ResultY;
     public static bool ResultIsPass, ResultIsResign;
     public static string LastError;
@@ -61,8 +68,19 @@ public static class GoKataGo
 
     public static bool IsAvailable()
     {
+        return GetAvailabilityStatus() == AvailabilityStatus.Ready;
+    }
+
+    // Read-only path inspection for settings and launch guards. This deliberately
+    // shares ResolvePaths with process startup and never creates a process.
+    public static AvailabilityStatus GetAvailabilityStatus()
+    {
         ResolvePaths();
-        return File.Exists(exePath) && File.Exists(modelPath) && File.Exists(cfgPath);
+        if (string.IsNullOrEmpty(exePath) || !File.Exists(exePath))
+            return AvailabilityStatus.ProgramMissing;
+        if (!File.Exists(modelPath) || !File.Exists(cfgPath))
+            return AvailabilityStatus.ModelMissing;
+        return AvailabilityStatus.Ready;
     }
 
     public static string InstallHint()

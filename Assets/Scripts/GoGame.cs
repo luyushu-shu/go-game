@@ -138,6 +138,8 @@ public class GoGame : MonoBehaviour
     InputField customMainMinutesInput, customByoyomiPeriodsInput, customByoyomiSecondsInput;
     GameObject customMainTimeRoot, customByoyomiRoot;
     Text timeValidationText, byoyomiValidationText;
+    string customMainMinutesText = "", customByoyomiPeriodsText = "", customByoyomiSecondsText = "";
+    bool customMainMinutesDirty, customByoyomiPeriodsDirty, customByoyomiSecondsDirty;
 
     Camera cam;
     Transform boardRoot;
@@ -183,6 +185,7 @@ public class GoGame : MonoBehaviour
 
     // 主界面
     GameObject menuCanvas, mainPanel, aiSetupPanel, historyPanel, historyDetail, settingsPanel;
+    GameObject settingsButtonRoot;
     InputField historySearch;
     Transform historyListContent;
     Text historyDetailText;
@@ -193,9 +196,12 @@ public class GoGame : MonoBehaviour
     Slider quickMasterVolumeSlider;
     Button quickMuteButton;
     Slider settingsMasterSlider, settingsMusicSlider, settingsSfxSlider, settingsWarningSlider;
+    Text settingsKataStatusText;
     Toggle settingsMuteToggle, settingsReduceMotionToggle;
     Toggle settingsMoveNumbersToggle, settingsCoordinatesToggle, settingsTerritoryToggle;
     static readonly string ReduceMotionKey = "Qiyi.ReduceMotion";
+    readonly List<GameObject> settingsSectionRoots = new List<GameObject>();
+    readonly List<Button> settingsSectionButtons = new List<Button>();
 
     GoUiTheme uiTheme;
     GoUiFactory uiFactory;
@@ -409,6 +415,7 @@ public class GoGame : MonoBehaviour
         if (historyDetail != null) historyDetail.SetActive(false);
         if (settingsPanel != null) settingsPanel.SetActive(false);
         SetVolumeQuickVisible(true);
+        SetSettingsButtonVisible(true);
         if (kifuForm != null) kifuForm.SetActive(false);
         if (ghostSr != null) ghostSr.enabled = false;
         RefreshStudyVisuals();
@@ -421,6 +428,7 @@ public class GoGame : MonoBehaviour
         if (historyPanel != null) historyPanel.SetActive(false);
         if (settingsPanel != null) settingsPanel.SetActive(false);
         SetVolumeQuickVisible(false);
+        SetSettingsButtonVisible(false);
         aiSetupPanel.SetActive(true);
         SyncAiSetup();
     }
@@ -434,6 +442,7 @@ public class GoGame : MonoBehaviour
         aiSetupPanel.SetActive(false);
         if (settingsPanel != null) settingsPanel.SetActive(false);
         SetVolumeQuickVisible(false);
+        SetSettingsButtonVisible(false);
         historyPanel.SetActive(true);
         if (historyDetail != null) historyDetail.SetActive(false);
         if (historySearch != null) historySearch.text = "";
@@ -1851,62 +1860,78 @@ public class GoGame : MonoBehaviour
         {
             MakeText(pt, "人机对弈", 36, Ink, TextAnchor.MiddleCenter);
             MakeText(pt, "开局前选定棋盘与规则，进入对局后不可更改", 13, Dim, TextAnchor.MiddleCenter);
+            var content = BuildScrollBody(pt, "AiSetupScroll");
 
-            MakeText(pt, "棋盘尺寸", 14, Dim, TextAnchor.MiddleCenter);
-            optSize = MakeOptions(pt, new[] { "9路", "13路", "19路" }, i =>
+            MakeText(content, "棋盘尺寸", 14, Dim, TextAnchor.MiddleCenter);
+            optSize = MakeOptions(content, new[] { "9路", "13路", "19路" }, i =>
             {
                 sizeChoice = i;
                 SyncAiSetup();
             });
 
-            MakeText(pt, "执棋", 14, Dim, TextAnchor.MiddleCenter);
-            optColor = MakeOptions(pt, new[] { "黑棋", "白棋", "猜先" }, i =>
+            MakeText(content, "执棋", 14, Dim, TextAnchor.MiddleCenter);
+            optColor = MakeOptions(content, new[] { "黑棋", "白棋", "猜先" }, i =>
             {
                 colorChoice = i;
                 SyncAiSetup();
             });
 
-            MakeText(pt, "贴目", 14, Dim, TextAnchor.MiddleCenter);
-            komiValText = MakeStepper(pt,
+            MakeText(content, "贴目", 14, Dim, TextAnchor.MiddleCenter);
+            komiValText = MakeStepper(content,
                 () => komi = Mathf.Max(0f, komi - 0.5f),
                 () => komi = Mathf.Min(15f, komi + 0.5f));
 
-            MakeText(pt, "让子（黑方预先布子，白方先下）", 14, Dim, TextAnchor.MiddleCenter);
-            handiValText = MakeStepper(pt,
+            MakeText(content, "让子（黑方预先布子，白方先下）", 14, Dim, TextAnchor.MiddleCenter);
+            handiValText = MakeStepper(content,
                 () => handicap = Mathf.Max(0, handicap - 1),
                 () => handicap = Mathf.Min(9, handicap + 1));
 
-            MakeText(pt, "对局时间", 14, Dim, TextAnchor.MiddleCenter);
-            optMainTime = MakeOptions(pt,
+            MakeText(content, "对局时间", 14, Dim, TextAnchor.MiddleCenter);
+            optMainTime = MakeOptions(content,
                 new[] { "无限制", "5分钟", "1小时", "2小时", "自定义" },
                 SetMainTimePreset);
-            customMainTimeRoot = BuildCustomMainTime(pt);
-            timeValidationText = MakeText(pt, "", 12, uiTheme.Cinnabar, TextAnchor.MiddleLeft);
+            customMainTimeRoot = BuildCustomMainTime(content);
 
-            MakeText(pt, "读秒", 14, Dim, TextAnchor.MiddleCenter);
-            optByoyomi = MakeOptions(pt,
+            MakeText(content, "读秒", 14, Dim, TextAnchor.MiddleCenter);
+            optByoyomi = MakeOptions(content,
                 new[] { "无", "3×30秒", "5×30秒", "5×60秒", "自定义" },
                 SetByoyomiPreset);
-            customByoyomiRoot = BuildCustomByoyomi(pt);
-            byoyomiValidationText = MakeText(pt, "", 12, uiTheme.Cinnabar, TextAnchor.MiddleLeft);
+            customByoyomiRoot = BuildCustomByoyomi(content);
 
-            MakeText(pt, "电脑对手", 14, Dim, TextAnchor.MiddleCenter);
-            optOpponent = MakeOptions(pt, new[] { "本地引擎", "KataGo", "大模型" }, i =>
+            MakeText(content, "电脑对手", 14, Dim, TextAnchor.MiddleCenter);
+            optOpponent = MakeOptions(content, new[] { "本地引擎", "KataGo", "大模型" }, i =>
             {
                 opponentChoice = i;
                 SyncAiSetup();
             });
 
-            MakeText(pt, "大模型密钥（xAI / OpenAI 兼容，仅存本机）", 13, Dim, TextAnchor.MiddleCenter);
-            llmKeyInput = MakeInputField(pt, "粘贴 API Key", 36f, false);
+            MakeText(content, "大模型密钥（xAI / OpenAI 兼容，仅存本机）", 13, Dim, TextAnchor.MiddleCenter);
+            llmKeyInput = MakeInputField(content, "粘贴 API Key", 36f, false);
             llmKeyInput.contentType = InputField.ContentType.Password;
             llmKeyInput.onEndEdit.AddListener(v => GoLlmAi.ApiKey = v);
 
-            var start = MakeButton(pt, "开始对局", 46f, StartAiGame, false);
+            var footer = new GameObject("AiSetupFooter");
+            footer.transform.SetParent(pt, false);
+            var footerLayout = footer.AddComponent<LayoutElement>();
+            footerLayout.minHeight = 94f;
+            footerLayout.preferredHeight = 94f;
+            footerLayout.flexibleHeight = 0f;
+            var footerGroup = footer.AddComponent<VerticalLayoutGroup>();
+            footerGroup.spacing = 4f;
+            footerGroup.childAlignment = TextAnchor.MiddleCenter;
+            footerGroup.childControlWidth = true;
+            footerGroup.childControlHeight = true;
+            footerGroup.childForceExpandWidth = true;
+            footerGroup.childForceExpandHeight = false;
+            timeValidationText = MakeText(footer.transform, "", 12, uiTheme.Cinnabar, TextAnchor.MiddleLeft);
+            byoyomiValidationText = MakeText(footer.transform, "", 12, uiTheme.Cinnabar, TextAnchor.MiddleLeft);
+            var actions = MakeRow(footer.transform, 46f);
+            var start = MakeButton(actions, "开始对局", 46f, StartAiGame, false);
             start.GetComponent<Image>().color = Accent;
             StyleAccentLabel(start);
-
-            MakeButton(pt, "返回", 40f, ShowMainMenu);
+            var back = MakeButton(actions, "返回", 40f, ShowMainMenu);
+            SetFixedWidth(start, 220f);
+            SetFixedWidth(back, 160f);
         });
         aiSetupPanel.SetActive(false);
 
@@ -1979,7 +2004,11 @@ public class GoGame : MonoBehaviour
             MakeText(pt, "设置", 32, Ink, TextAnchor.MiddleCenter);
             MakeText(pt, "偏好会保存在本机，下次启动继续生效", 13, Dim, TextAnchor.MiddleCenter);
 
-            var columns = MakeRow(pt, 430f);
+            var columns = MakeRow(pt, 0f);
+            var columnsLayout = columns.gameObject.GetComponent<LayoutElement>();
+            columnsLayout.preferredHeight = 0f;
+            columnsLayout.minHeight = 0f;
+            columnsLayout.flexibleHeight = 1f;
             var directory = new GameObject("SettingsDirectory");
             directory.transform.SetParent(columns, false);
             var directoryLayout = directory.AddComponent<LayoutElement>();
@@ -2003,101 +2032,122 @@ public class GoGame : MonoBehaviour
                 int section = i;
                 var sectionButton = MakeButton(directory.transform, sections[i], 38f,
                     () => ShowSettingsSection(section));
-                if (i == 0) StyleAccentLabel(sectionButton);
+                settingsSectionButtons.Add(sectionButton);
             }
 
-            var content = new GameObject("SettingsContent");
-            content.transform.SetParent(columns, false);
-            var contentLayout = content.AddComponent<LayoutElement>();
-            contentLayout.flexibleWidth = 1f;
-            contentLayout.minWidth = 460f;
-            var contentImage = content.AddComponent<Image>();
-            contentImage.color = new Color(0.12f, 0.09f, 0.06f, 0.94f);
-            var contentGroup = content.AddComponent<VerticalLayoutGroup>();
-            contentGroup.padding = new RectOffset(24, 24, 22, 22);
-            contentGroup.spacing = 10f;
-            contentGroup.childAlignment = TextAnchor.UpperCenter;
-            contentGroup.childControlWidth = true;
-            contentGroup.childControlHeight = true;
-            contentGroup.childForceExpandWidth = true;
-            contentGroup.childForceExpandHeight = false;
+            var content = BuildScrollBody(columns, "SettingsScroll");
+            var contentRect = content.GetComponent<RectTransform>();
+            contentRect.offsetMin = new Vector2(0f, 0f);
+            contentRect.offsetMax = new Vector2(0f, 0f);
+            settingsSectionRoots.Clear();
 
-            MakeText(content.transform, "音量", 22, Ink, TextAnchor.MiddleLeft);
-            settingsMasterSlider = MakeSettingsSlider(content.transform, "主音量",
+            var volume = CreateSettingsSection(content, "VolumeSection");
+            MakeText(volume, "音量", 22, Ink, TextAnchor.MiddleLeft);
+            settingsMasterSlider = MakeSettingsSlider(volume, "主音量",
                 audioManager != null ? audioManager.MasterVolume : GoAudioManager.DefaultMasterVolume,
                 value => audioManager?.SetMasterVolume(value));
-            settingsMusicSlider = MakeSettingsSlider(content.transform, "音乐",
+            settingsMusicSlider = MakeSettingsSlider(volume, "音乐",
                 audioManager != null ? audioManager.MusicVolume : GoAudioManager.DefaultMusicVolume,
                 value => audioManager?.SetMusicVolume(value));
-            settingsSfxSlider = MakeSettingsSlider(content.transform, "音效",
+            settingsSfxSlider = MakeSettingsSlider(volume, "音效",
                 audioManager != null ? audioManager.SfxVolume : GoAudioManager.DefaultSfxVolume,
                 value => audioManager?.SetSfxVolume(value));
-            settingsWarningSlider = MakeSettingsSlider(content.transform, "计时提醒",
+            settingsWarningSlider = MakeSettingsSlider(volume, "计时提醒",
                 audioManager != null ? audioManager.WarningVolume : GoAudioManager.DefaultWarningVolume,
                 value => audioManager?.SetWarningVolume(value));
-            settingsMuteToggle = uiFactory.MakeToggle(content.transform, "MuteToggle", "静音",
+            settingsMuteToggle = uiFactory.MakeToggle(volume, "MuteToggle", "静音",
                 audioManager != null && audioManager.IsMuted, SetMuteFromUi);
 
-            MakeText(content.transform, "界面", 22, Ink, TextAnchor.MiddleLeft);
-            settingsMoveNumbersToggle = uiFactory.MakeToggle(content.transform, "MoveNumbersToggle",
+            var appearance = CreateSettingsSection(content, "AppearanceSection");
+            MakeText(appearance, "界面", 22, Ink, TextAnchor.MiddleLeft);
+            settingsMoveNumbersToggle = uiFactory.MakeToggle(appearance, "MoveNumbersToggle",
                 "手数", showMoveNums, value =>
                 {
                     showMoveNums = value;
                     Refresh();
                 });
-            settingsCoordinatesToggle = uiFactory.MakeToggle(content.transform, "CoordinatesToggle",
+            settingsCoordinatesToggle = uiFactory.MakeToggle(appearance, "CoordinatesToggle",
                 "坐标", showCoords, value =>
                 {
                     showCoords = value;
                     Refresh();
                 });
-            settingsTerritoryToggle = uiFactory.MakeToggle(content.transform, "TerritoryToggle",
+            settingsTerritoryToggle = uiFactory.MakeToggle(appearance, "TerritoryToggle",
                 "形势", showTerritory, value =>
                 {
                     showTerritory = value;
                     Refresh();
                 });
-            settingsReduceMotionToggle = uiFactory.MakeToggle(content.transform, "ReduceMotionToggle",
+            settingsReduceMotionToggle = uiFactory.MakeToggle(appearance, "ReduceMotionToggle",
                 "减少动效", PlayerPrefs.GetInt(ReduceMotionKey, 0) != 0, SetReduceMotion);
 
-            MakeText(content.transform, "KataGo", 22, Ink, TextAnchor.MiddleLeft);
-            var kataStatus = MakeReadOnlyRow(content.transform, "KataGo 状态");
-            kataStatus.text = GetKataGoStatus();
-            var kataPath = MakeReadOnlyRow(content.transform, "KataGo 路径");
+            var board = CreateSettingsSection(content, "BoardSection");
+            MakeText(board, "棋盘", 22, Ink, TextAnchor.MiddleLeft);
+            MakeText(board, "棋盘显示选项已在‘界面’分区提供；棋盘皮肤与坐标布局沿用当前棋局设置。",
+                14, Dim, TextAnchor.UpperLeft);
+            MakeReadOnlyRow(board, "当前棋盘规格").text = "9路 / 13路 / 19路（在人机设置页选择）";
+
+            var engine = CreateSettingsSection(content, "EngineSection");
+            MakeText(engine, "AI引擎", 22, Ink, TextAnchor.MiddleLeft);
+            settingsKataStatusText = MakeReadOnlyRow(engine, "KataGo 状态");
+            settingsKataStatusText.text = GetKataGoStatus();
+            var kataPath = MakeReadOnlyRow(engine, "KataGo 路径");
             kataPath.text = "Tools/KataGo";
-            var kataModel = MakeReadOnlyRow(content.transform, "模型");
+            var kataModel = MakeReadOnlyRow(engine, "模型");
             kataModel.text = "default_model.bin.gz";
-            var kataConfig = MakeReadOnlyRow(content.transform, "配置");
+            var kataConfig = MakeReadOnlyRow(engine, "配置");
             kataConfig.text = "gtp.cfg";
-            var benchmark = MakeReadOnlyRow(content.transform, "benchmark");
+            var benchmark = MakeReadOnlyRow(engine, "benchmark");
             benchmark.text = "未运行";
-            MakeButton(content.transform, "运行 benchmark", 36f,
+            MakeButton(engine, "运行 benchmark", 36f,
                 () => Flash("benchmark 尚未在设置页启动"));
 
-            MakeText(content.transform, "快捷键", 22, Ink, TextAnchor.MiddleLeft);
-            MakeReadOnlyRow(content.transform, "悔棋 / 停一手").text = "Ctrl+Z / Space";
-            MakeReadOnlyRow(content.transform, "数目 / 认输").text = "S / R";
-            MakeText(content.transform, "KataGo 状态仅显示：已就绪、未找到程序、未找到模型。",
+            var shortcuts = CreateSettingsSection(content, "ShortcutsSection");
+            MakeText(shortcuts, "快捷键", 22, Ink, TextAnchor.MiddleLeft);
+            MakeReadOnlyRow(shortcuts, "悔棋 / 停一手").text = "Ctrl+Z / Space";
+            MakeReadOnlyRow(shortcuts, "数目 / 认输").text = "S / R";
+            MakeText(shortcuts, "快捷键说明仅作当前版本占位，后续按既有入口接入。",
+                12, Dim, TextAnchor.UpperLeft);
+
+            var about = CreateSettingsSection(content, "AboutSection");
+            MakeText(about, "关于", 22, Ink, TextAnchor.MiddleLeft);
+            MakeReadOnlyRow(about, "版本").text = Application.version;
+            MakeText(about, "棋弈有道 · 宋式清雅 · 夜案棋局",
+                14, Dim, TextAnchor.UpperLeft);
+            MakeText(about, "本页只提供当前版本的设置说明，不改变规则、AI、历史或存档入口。",
                 12, Dim, TextAnchor.UpperLeft);
 
             MakeButton(pt, "返回", 40f, ShowMainMenu);
+            ShowSettingsSection(0);
         });
         settingsPanel.SetActive(false);
     }
 
+    Transform CreateSettingsSection(Transform parent, string name)
+    {
+        var section = new GameObject(name);
+        section.transform.SetParent(parent, false);
+        var layout = section.AddComponent<LayoutElement>();
+        layout.flexibleWidth = 1f;
+        var group = section.AddComponent<VerticalLayoutGroup>();
+        group.spacing = 10f;
+        group.childAlignment = TextAnchor.UpperCenter;
+        group.childControlWidth = true;
+        group.childControlHeight = true;
+        group.childForceExpandWidth = true;
+        group.childForceExpandHeight = false;
+        settingsSectionRoots.Add(section);
+        return section.transform;
+    }
+
     string GetKataGoStatus()
     {
-        if (GoKataGo.IsAvailable()) return "已就绪";
-
-        // GoKataGo remains the authority for readiness and process startup.
-        // This small display-only check distinguishes the two useful missing
-        // asset states without creating another KataGo configuration model.
-        string root = System.IO.Path.Combine(
-            System.IO.Directory.GetParent(Application.dataPath).FullName,
-            "Tools", "KataGo");
-        bool modelExists = System.IO.File.Exists(
-            System.IO.Path.Combine(root, "default_model.bin.gz"));
-        return modelExists ? "未找到程序" : "未找到模型";
+        switch (GoKataGo.GetAvailabilityStatus())
+        {
+            case GoKataGo.AvailabilityStatus.Ready: return "已就绪";
+            case GoKataGo.AvailabilityStatus.ProgramMissing: return "未找到程序";
+            default: return "未找到模型";
+        }
     }
 
     Slider MakeSettingsSlider(Transform parent, string label, float value,
@@ -2116,6 +2166,7 @@ public class GoGame : MonoBehaviour
     void BuildSettingsButton()
     {
         var button = MakeButton(menuCanvas.transform, "⚙ 设置", 40f, ShowSettings);
+        settingsButtonRoot = button.gameObject;
         SetFixedWidth(button, 116f);
         var rect = button.GetComponent<RectTransform>();
         rect.anchorMin = rect.anchorMax = new Vector2(1f, 1f);
@@ -2126,7 +2177,7 @@ public class GoGame : MonoBehaviour
     void BuildVersionLabel()
     {
         var version = MakeText(menuCanvas.transform, "版本号", 13, Dim, TextAnchor.MiddleLeft);
-        version.text = "版本 0.1.0";
+        version.text = "版本 " + Application.version;
         var rect = version.rectTransform;
         rect.anchorMin = rect.anchorMax = new Vector2(0f, 0f);
         rect.pivot = new Vector2(0f, 0f);
@@ -2190,6 +2241,17 @@ public class GoGame : MonoBehaviour
 
     void ShowSettingsSection(int section)
     {
+        section = Mathf.Clamp(section, 0, settingsSectionRoots.Count - 1);
+        for (int i = 0; i < settingsSectionRoots.Count; i++)
+            settingsSectionRoots[i].SetActive(i == section);
+        for (int i = 0; i < settingsSectionButtons.Count; i++)
+        {
+            bool selected = i == section;
+            var image = settingsSectionButtons[i].GetComponent<Image>();
+            if (image != null) image.color = selected ? Accent : BtnBg;
+            var label = settingsSectionButtons[i].GetComponentInChildren<Text>();
+            if (label != null) label.color = selected ? new Color(0.11f, 0.09f, 0.07f) : Ink;
+        }
         if (section == 1 && settingsReduceMotionToggle != null)
             settingsReduceMotionToggle.Select();
         if (section == 0 && settingsMasterSlider != null)
@@ -2199,6 +2261,8 @@ public class GoGame : MonoBehaviour
     void ShowSettings()
     {
         SyncAudioControls();
+        if (settingsKataStatusText != null)
+            settingsKataStatusText.text = GetKataGoStatus();
         menuCanvas.SetActive(true);
         mainPanel.SetActive(false);
         aiSetupPanel.SetActive(false);
@@ -2206,6 +2270,7 @@ public class GoGame : MonoBehaviour
         if (historyDetail != null) historyDetail.SetActive(false);
         if (settingsPanel != null) settingsPanel.SetActive(true);
         SetVolumeQuickVisible(false);
+        SetSettingsButtonVisible(false);
         if (uiNavigator != null) uiNavigator.Show(GoUiPage.Settings);
     }
 
@@ -2213,6 +2278,11 @@ public class GoGame : MonoBehaviour
     {
         if (quickMasterVolumeSlider != null && quickMasterVolumeSlider.transform.parent != null)
             quickMasterVolumeSlider.transform.parent.gameObject.SetActive(visible);
+    }
+
+    void SetSettingsButtonVisible(bool visible)
+    {
+        if (settingsButtonRoot != null) settingsButtonRoot.SetActive(visible);
     }
 
     void SetMuteFromUi(bool value)
@@ -2554,6 +2624,56 @@ public class GoGame : MonoBehaviour
         }
     }
 
+    Transform BuildScrollBody(Transform parent, string name)
+    {
+        var host = new GameObject(name);
+        host.transform.SetParent(parent, false);
+        var hostLayout = host.AddComponent<LayoutElement>();
+        hostLayout.flexibleHeight = 1f;
+        hostLayout.minHeight = 0f;
+        hostLayout.flexibleWidth = 1f;
+        var hostImage = host.AddComponent<Image>();
+        hostImage.color = new Color(0.10f, 0.08f, 0.06f, 0.58f);
+
+        var scroll = host.AddComponent<ScrollRect>();
+        scroll.horizontal = false;
+        scroll.vertical = true;
+        scroll.movementType = ScrollRect.MovementType.Clamped;
+        scroll.scrollSensitivity = 32f;
+
+        var viewport = new GameObject("Viewport");
+        viewport.transform.SetParent(host.transform, false);
+        var viewportRect = viewport.AddComponent<RectTransform>();
+        viewportRect.anchorMin = Vector2.zero;
+        viewportRect.anchorMax = Vector2.one;
+        viewportRect.offsetMin = new Vector2(8f, 8f);
+        viewportRect.offsetMax = new Vector2(-8f, -8f);
+        viewport.AddComponent<RectMask2D>();
+
+        var content = new GameObject("Content");
+        content.transform.SetParent(viewport.transform, false);
+        var contentRect = content.AddComponent<RectTransform>();
+        contentRect.anchorMin = new Vector2(0f, 1f);
+        contentRect.anchorMax = new Vector2(1f, 1f);
+        contentRect.pivot = new Vector2(0.5f, 1f);
+        contentRect.anchoredPosition = Vector2.zero;
+        contentRect.sizeDelta = Vector2.zero;
+        var contentGroup = content.AddComponent<VerticalLayoutGroup>();
+        contentGroup.padding = new RectOffset(16, 16, 14, 14);
+        contentGroup.spacing = 10f;
+        contentGroup.childAlignment = TextAnchor.UpperCenter;
+        contentGroup.childControlWidth = true;
+        contentGroup.childControlHeight = true;
+        contentGroup.childForceExpandWidth = true;
+        contentGroup.childForceExpandHeight = false;
+        var contentFit = content.AddComponent<ContentSizeFitter>();
+        contentFit.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        scroll.viewport = viewportRect;
+        scroll.content = contentRect;
+        return content.transform;
+    }
+
     GameObject BuildMenuPanel(string name, float width, float height, System.Action<Transform> build)
     {
         var panel = new GameObject(name);
@@ -2598,13 +2718,16 @@ public class GoGame : MonoBehaviour
             llmKeyInput.text = PlayerPrefs.GetString("GoLlmKey", "");
         if (customMainMinutesInput != null)
             customMainMinutesInput.SetTextWithoutNotify(
-                Mathf.Max(1, timeControl.MainTimeSeconds / 60).ToString());
+                customMainMinutesDirty ? customMainMinutesText
+                    : Mathf.Max(1, timeControl.MainTimeSeconds / 60).ToString());
         if (customByoyomiPeriodsInput != null)
             customByoyomiPeriodsInput.SetTextWithoutNotify(
-                Mathf.Max(1, timeControl.ByoyomiPeriods).ToString());
+                customByoyomiPeriodsDirty ? customByoyomiPeriodsText
+                    : Mathf.Max(1, timeControl.ByoyomiPeriods).ToString());
         if (customByoyomiSecondsInput != null)
             customByoyomiSecondsInput.SetTextWithoutNotify(
-                Mathf.Max(5, timeControl.ByoyomiSeconds).ToString());
+                customByoyomiSecondsDirty ? customByoyomiSecondsText
+                    : Mathf.Max(5, timeControl.ByoyomiSeconds).ToString());
         if (customMainTimeRoot != null)
             customMainTimeRoot.SetActive(timeControl.MainPreset == GoTimePreset.Custom);
         if (customByoyomiRoot != null)
@@ -2630,6 +2753,8 @@ public class GoGame : MonoBehaviour
         SetFixedWidth(customMainMinutesInput, 120f);
         customMainMinutesInput.onEndEdit.AddListener(_ =>
         {
+            customMainMinutesText = customMainMinutesInput.text;
+            customMainMinutesDirty = true;
             SyncTimeControlFromInputs();
             ValidateTimeControlUi();
         });
@@ -2659,6 +2784,10 @@ public class GoGame : MonoBehaviour
 
         UnityEngine.Events.UnityAction onEdit = () =>
         {
+            customByoyomiPeriodsText = customByoyomiPeriodsInput.text;
+            customByoyomiSecondsText = customByoyomiSecondsInput.text;
+            customByoyomiPeriodsDirty = true;
+            customByoyomiSecondsDirty = true;
             SyncTimeControlFromInputs();
             ValidateTimeControlUi();
         };
@@ -2706,20 +2835,26 @@ public class GoGame : MonoBehaviour
         var next = timeControl;
         if (next.MainPreset == GoTimePreset.Custom)
         {
+            if (customMainMinutesInput != null)
+                customMainMinutesText = customMainMinutesInput.text;
             int minutes;
             next.MainTimeSeconds = int.TryParse(
-                customMainMinutesInput != null ? customMainMinutesInput.text : "",
+                customMainMinutesText,
                 out minutes) ? minutes * 60 : 0;
         }
         if (next.ByoyomiPreset == GoByoyomiPreset.Custom)
         {
+            if (customByoyomiPeriodsInput != null)
+                customByoyomiPeriodsText = customByoyomiPeriodsInput.text;
+            if (customByoyomiSecondsInput != null)
+                customByoyomiSecondsText = customByoyomiSecondsInput.text;
             int periods;
             int seconds;
             next.ByoyomiPeriods = int.TryParse(
-                customByoyomiPeriodsInput != null ? customByoyomiPeriodsInput.text : "",
+                customByoyomiPeriodsText,
                 out periods) ? periods : 0;
             next.ByoyomiSeconds = int.TryParse(
-                customByoyomiSecondsInput != null ? customByoyomiSecondsInput.text : "",
+                customByoyomiSecondsText,
                 out seconds) ? seconds : 0;
         }
         timeControl = next;
