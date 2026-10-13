@@ -172,4 +172,6 @@ Status: DONE_WITH_CONCERNS
 
 ## Commit
 
-- Fix commit hash will be recorded in the post-commit addendum below.
+- `3ed96a224a601057e01852f2613735877cff5271` — `fix: scope task 0 readme and capture editor baseline`
+
+The report was force-added because `.superpowers/sdd/.gitignore` intentionally ignores the SDD records. The commit contains only this report file; the Task 0 project files remain unchanged from the prior implementation.
