@@ -1,4 +1,5 @@
 using NUnit.Framework;
+using UnityEngine;
 
 public class GoClockControllerTests
 {
@@ -94,5 +95,74 @@ public class GoClockControllerTests
         clock.Tick(1.0);
 
         Assert.AreEqual(GoRules.WHITE, losingColor);
+    }
+
+    [Test]
+    public void TimeoutStopsClockAndFiresOnlyOnce()
+    {
+        var control = GoTimeControl.FromPreset(GoTimePreset.Custom, GoByoyomiPreset.None);
+        control.MainTimeSeconds = 1;
+        var clock = new GoClockController();
+        int timeoutCount = 0;
+        clock.TimedOut += _ => timeoutCount++;
+        clock.Start(control, GoRules.BLACK);
+
+        clock.Tick(1.0);
+        clock.Tick(5.0);
+
+        Assert.AreEqual(1, timeoutCount);
+        Assert.IsFalse(clock.IsRunning);
+        Assert.IsTrue(clock.GetSnapshot(GoRules.BLACK).TimedOut);
+    }
+
+    [Test]
+    public void UnlimitedClockNeverConsumesOrTimesOut()
+    {
+        var clock = new GoClockController();
+        clock.Start(GoTimeControl.FromPreset(GoTimePreset.Unlimited, GoByoyomiPreset.None), GoRules.BLACK);
+        int timeoutCount = 0;
+        clock.TimedOut += _ => timeoutCount++;
+
+        clock.Tick(3600.0);
+
+        var snapshot = clock.GetSnapshot(GoRules.BLACK);
+        Assert.IsTrue(double.IsPositiveInfinity(snapshot.MainSeconds));
+        Assert.AreEqual(0, timeoutCount);
+        Assert.IsTrue(clock.IsRunning);
+    }
+
+    [Test]
+    public void ClockViewWarnsOnceWithinTheSameByoyomiPeriod()
+    {
+        var control = GoTimeControl.FromPreset(GoTimePreset.Custom, GoByoyomiPreset.FiveByThirty);
+        control.MainTimeSeconds = 1;
+        var clock = new GoClockController();
+        clock.Start(control, GoRules.BLACK);
+
+        var go = new GameObject("ClockViewTest");
+        try
+        {
+            var view = go.AddComponent<GoClockView>();
+            view.Bind(clock, GoRules.BLACK);
+            clock.Tick(1.0);
+            clock.Tick(20.0);
+            Assert.IsTrue(view.IsWarning);
+            Assert.AreEqual("读秒 5/5 · 00:10", view.DisplayText);
+            Assert.AreEqual(1, view.WarningCount);
+
+            clock.Tick(1.0);
+            Assert.IsTrue(view.IsWarning);
+            Assert.AreEqual("读秒 5/5 · 00:09", view.DisplayText);
+            Assert.AreEqual(1, view.WarningCount);
+
+            clock.SetTurn(GoRules.WHITE);
+            clock.SetTurn(GoRules.BLACK);
+            clock.Tick(20.0);
+            Assert.AreEqual(2, view.WarningCount);
+        }
+        finally
+        {
+            Object.DestroyImmediate(go);
+        }
     }
 }

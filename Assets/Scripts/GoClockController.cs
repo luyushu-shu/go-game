@@ -8,6 +8,7 @@ public struct GoClockSnapshot
     public int ByoyomiPeriodsLeft;
     public double ByoyomiSeconds;
     public bool InByoyomi;
+    public int ByoyomiSegment;
     public bool TimedOut;
 }
 
@@ -17,6 +18,8 @@ public sealed class GoClockController
     public event Action<int> TimedOut;
     public int ActiveColor { get; private set; }
     public bool IsRunning { get; private set; }
+    public int ByoyomiPeriodsTotal => control.ByoyomiPeriods;
+    public int ByoyomiSecondsTotal => control.ByoyomiSeconds;
 
     readonly ClockState black = new ClockState { Color = GoRules.BLACK };
     readonly ClockState white = new ClockState { Color = GoRules.WHITE };
@@ -31,6 +34,7 @@ public sealed class GoClockController
         public int ByoyomiPeriodsLeft;
         public double ByoyomiSeconds;
         public bool InByoyomi;
+        public int ByoyomiSegment;
         public bool TimedOut;
     }
 
@@ -59,6 +63,7 @@ public sealed class GoClockController
         {
             state.InByoyomi = true;
             state.ByoyomiSeconds = control.ByoyomiSeconds;
+            state.ByoyomiSegment++;
         }
         var after = GetSnapshot(color);
         if (!SnapshotsEqual(before, after)) Changed?.Invoke(before, after);
@@ -104,6 +109,7 @@ public sealed class GoClockController
             ByoyomiPeriodsLeft = state.ByoyomiPeriodsLeft,
             ByoyomiSeconds = state.ByoyomiSeconds,
             InByoyomi = state.InByoyomi,
+            ByoyomiSegment = state.ByoyomiSegment,
             TimedOut = state.TimedOut
         };
     }
@@ -114,6 +120,7 @@ public sealed class GoClockController
         state.ByoyomiPeriodsLeft = control.ByoyomiPeriods;
         state.ByoyomiSeconds = 0;
         state.InByoyomi = false;
+        state.ByoyomiSegment = 0;
         state.TimedOut = false;
     }
 
@@ -136,6 +143,7 @@ public sealed class GoClockController
                 }
 
                 state.InByoyomi = true;
+                state.ByoyomiSegment++;
                 if (state.ByoyomiSeconds <= 0) state.ByoyomiSeconds = control.ByoyomiSeconds;
             }
             if (remaining <= 0) return;
@@ -201,6 +209,7 @@ public sealed class GoClockController
         return a.Color == b.Color && a.MainSeconds.Equals(b.MainSeconds) &&
             a.ByoyomiPeriodsLeft == b.ByoyomiPeriodsLeft &&
             a.ByoyomiSeconds.Equals(b.ByoyomiSeconds) &&
-            a.InByoyomi == b.InByoyomi && a.TimedOut == b.TimedOut;
+            a.InByoyomi == b.InByoyomi && a.ByoyomiSegment == b.ByoyomiSegment
+            && a.TimedOut == b.TimedOut;
     }
 }

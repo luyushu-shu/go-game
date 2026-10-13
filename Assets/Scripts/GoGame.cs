@@ -61,6 +61,11 @@ public class GoGame : MonoBehaviour
     int reviewPly, reviewTotal;
     GameObject btnUndo, btnPass, btnResign, btnClear, btnScore, btnReviewPrev, btnReviewNext, btnReviewEnd;
     Text homeBtnLabel;
+    GoClockController clockController;
+    GoClockView blackClockView, whiteClockView;
+    GameObject resignDialog, scoreDialog, timeoutDialog;
+    Text resignDialogResult, scoreDialogDetails, timeoutDialogResult;
+    Text studySaveStatusText;
     bool aiBusy = false;
     bool inMenu = true;
 
@@ -261,6 +266,7 @@ public class GoGame : MonoBehaviour
 
     void StartStudyGame()
     {
+        StopPlayClock();
         audioManager?.PlaySfx("button_confirm");
         audioManager?.PlayMusic("bgm_study");
         inStudyMode = true;
@@ -290,6 +296,7 @@ public class GoGame : MonoBehaviour
 
     void StartAiGame()
     {
+        StopPlayClock();
         SyncTimeControlFromInputs();
         if (!timeControl.TryValidate(out string timeError))
         {
@@ -328,6 +335,8 @@ public class GoGame : MonoBehaviour
         rules.Komi = komi;
         if (handicap > 0) rules.SetupHandicap(HandicapPoints(boardSize, handicap));
 
+        StartPlayClock();
+
         EnterGame();
         Flash(colorChoice == 2
             ? "猜先结果：你" + (humanColor == GoRules.BLACK ? "执黑" : "执白")
@@ -340,6 +349,7 @@ public class GoGame : MonoBehaviour
 
     void EnterGame()
     {
+        if (!vsAI) StopPlayClock();
         BuildBoard();
         inMenu = false;
         reviewingKifu = false;
@@ -350,7 +360,58 @@ public class GoGame : MonoBehaviour
         lastResultLine = "";
         kifuDraftReady = false;
         if (kifuForm != null) kifuForm.SetActive(false);
+        if (studySaveStatusText != null)
+            studySaveStatusText.text = inStudyMode ? "自动保存：已保存" : "";
         Refresh();
+    }
+
+    void StartPlayClock()
+    {
+        StopPlayClock();
+        clockController = new GoClockController();
+        clockController.TimedOut += OnClockTimedOut;
+        clockController.Start(timeControl, GoRules.BLACK);
+        if (blackClockView != null) blackClockView.Bind(clockController, GoRules.BLACK);
+        if (whiteClockView != null) whiteClockView.Bind(clockController, GoRules.WHITE);
+        UpdateClockPauseState();
+    }
+
+    void StopPlayClock()
+    {
+        if (clockController == null) return;
+        clockController.TimedOut -= OnClockTimedOut;
+        clockController.Stop();
+        clockController = null;
+        if (blackClockView != null) blackClockView.Bind(null, GoRules.BLACK);
+        if (whiteClockView != null) whiteClockView.Bind(null, GoRules.WHITE);
+    }
+
+    void OnClockTimedOut(int loserColor)
+    {
+        if (rules == null || rules.Result != null) return;
+        rules.FinishByTimeout(loserColor);
+        StopPlayClock();
+        SaveTerminalDraft();
+        Refresh();
+        ShowTimeoutDialog(loserColor);
+    }
+
+    void UpdateClockPauseState()
+    {
+        if (clockController == null) return;
+        bool blocked = inMenu || reviewingKifu || rules == null
+            || rules.Phase != GoPhase.Play || rules.Result != null
+            || (scorePopup != null && scorePopup.activeSelf)
+            || (kifuForm != null && kifuForm.activeSelf)
+            || (resignDialog != null && resignDialog.activeSelf)
+            || (scoreDialog != null && scoreDialog.activeSelf)
+            || (timeoutDialog != null && timeoutDialog.activeSelf);
+        if (blocked) clockController.Pause();
+        else clockController.Resume();
+        bool blackActive = clockController.IsRunning && clockController.ActiveColor == GoRules.BLACK;
+        bool whiteActive = clockController.IsRunning && clockController.ActiveColor == GoRules.WHITE;
+        if (blackClockView != null) blackClockView.Render(clockController.GetSnapshot(GoRules.BLACK), blackActive);
+        if (whiteClockView != null) whiteClockView.Render(clockController.GetSnapshot(GoRules.WHITE), whiteActive);
     }
 
     bool TryLoadStudySave(out GoStateData data)
@@ -363,12 +424,18 @@ public class GoGame : MonoBehaviour
         if (!inStudyMode || reviewingKifu) return;
         if (!GoSaveManager.SaveStudyProgress(rules, out string err))
         {
+            if (studySaveStatusText != null) studySaveStatusText.text = "自动保存：保存失败";
             Debug.LogWarning("自动保存打谱进度失败: " + err);
+        }
+        else if (studySaveStatusText != null)
+        {
+            studySaveStatusText.text = "自动保存：已保存";
         }
     }
 
     void ReturnToMainMenu()
     {
+        StopPlayClock();
         HideScorePopup();
         if (reviewingKifu)
         {
@@ -404,6 +471,7 @@ public class GoGame : MonoBehaviour
 
     void ShowMainMenu()
     {
+        StopPlayClock();
         if (audioManager != null) audioManager.SavePrefs();
         inMenu = true;
         reviewingKifu = false;
@@ -466,6 +534,7 @@ public class GoGame : MonoBehaviour
         if (vsAI && rules.Turn != humanColor) return;
         if (!rules.Play(x, y, out string msg)) { Flash(msg); return; }
         audioManager?.PlaySfx("stone_place");
+        clockController?.SetTurn(rules.Turn);
         AfterMove();
     }
 
@@ -475,6 +544,7 @@ public class GoGame : MonoBehaviour
         if (aiBusy || inMenu || rules.Result != null || rules.Phase != GoPhase.Play) return;
         if (vsAI && rules.Turn != humanColor) return;
         rules.Pass();
+        clockController?.SetTurn(rules.Turn);
         Flash(rules.Phase == GoPhase.Scoring ? "双方停一手，进入数子：点击棋子可标记死子"
                                              : (rules.Turn == GoRules.BLACK ? "黑" : "白") + "方停一手");
         AfterMove();
@@ -518,11 +588,14 @@ public class GoGame : MonoBehaviour
             if (result.isResign)
             {
                 rules.ResignBy(aiColor);
+                StopPlayClock();
+                SaveTerminalDraft();
                 ShowResultPopup(rules.Result);
             }
             else if (result.isPass)
             {
                 rules.Pass();
+                clockController?.SetTurn(rules.Turn);
                 string who = opponentChoice == 1 ? "KataGo" : opponentChoice == 2 ? "电脑" : "AI";
                 Flash(rules.Phase == GoPhase.Scoring ? "双方停一手，进入数子" : who + " 停一手");
             }
@@ -533,6 +606,7 @@ public class GoGame : MonoBehaviour
             else
             {
                 audioManager?.PlaySfx("stone_place");
+                clockController?.SetTurn(rules.Turn);
             }
         }
         else if (result != null && !string.IsNullOrEmpty(result.error))
@@ -551,6 +625,7 @@ public class GoGame : MonoBehaviour
         aiController?.Cancel();
         int steps = vsAI ? 2 : 1;
         if (!rules.Undo(steps)) { Flash("没有可悔的棋"); return; }
+        clockController?.SetTurn(rules.Turn);
         Flash("已悔棋");
         Refresh();
         if (vsAI && rules.Phase == GoPhase.Play && rules.Turn == aiColor)
@@ -564,6 +639,8 @@ public class GoGame : MonoBehaviour
     void Update()
     {
         if (cam == null || rules == null) return;
+        UpdateClockPauseState();
+        clockController?.Tick(Time.unscaledDeltaTime);
         if (inMenu)
         {
             if (ghostSr != null) ghostSr.enabled = false;
@@ -1066,16 +1143,33 @@ public class GoGame : MonoBehaviour
         var pt = pgo.transform;
 
         MakeText(pt, "落子记录与变化推演", 15, Dim, TextAnchor.MiddleCenter);
+        BuildClockUi(pt);
         BuildMoveLogScroll(pt);
         BuildCommentModuleUi(pt);
         turnText = MakeText(pt, "", 14, Ink, TextAnchor.MiddleCenter);
         msgText = MakeText(pt, "", 14, Accent, TextAnchor.MiddleCenter);
+        studySaveStatusText = MakeText(pt, "", 12, new Color(0.435f, 0.604f, 0.510f, 1f), TextAnchor.MiddleCenter);
+        studySaveStatusText.gameObject.SetActive(false);
 
-        btnUndo = MakeButton(pt, "悔棋", 42f, Undo).gameObject;
-        btnPass = MakeButton(pt, "停一手", 42f, HumanPass).gameObject;
-        btnResign = MakeButton(pt, "认输", 42f, HumanResign).gameObject;
-        btnClear = MakeButton(pt, "清空棋盘", 42f, ClearBoardKeepPlaying).gameObject;
-        btnScore = MakeButton(pt, "数目", 42f, OpenScorePopup).gameObject;
+        var operationRow = new GameObject("OperationRow");
+        operationRow.transform.SetParent(pt, false);
+        var operationLayout = operationRow.AddComponent<LayoutElement>();
+        operationLayout.preferredHeight = 42f;
+        operationLayout.minHeight = 42f;
+        var operationGroup = operationRow.AddComponent<HorizontalLayoutGroup>();
+        operationGroup.spacing = 5f;
+        operationGroup.childAlignment = TextAnchor.MiddleCenter;
+        operationGroup.childControlWidth = true;
+        operationGroup.childControlHeight = true;
+        operationGroup.childForceExpandWidth = true;
+        operationGroup.childForceExpandHeight = true;
+
+        btnUndo = MakeButton(operationRow.transform, "悔棋", 42f, Undo).gameObject;
+        btnPass = MakeButton(operationRow.transform, "停一手", 42f, HumanPass).gameObject;
+        btnScore = MakeButton(operationRow.transform, "数目", 42f, OpenScorePopup).gameObject;
+        btnResign = MakeButton(operationRow.transform, "认输", 42f, HumanResign).gameObject;
+        btnClear = null;
+        BuildTerminalDialogs(canvas.transform);
         BuildReviewAiUi(pt);
         var home = MakeButton(pt, "返回主界面", 42f, ReturnToMainMenu);
         homeBtnLabel = home.GetComponentInChildren<Text>();
@@ -1083,6 +1177,30 @@ public class GoGame : MonoBehaviour
         BuildScorePopup(canvas.transform);
         BuildKifuForm(canvas.transform);
         BuildStudyBoardUi(canvas.transform);
+    }
+
+    void BuildClockUi(Transform parent)
+    {
+        var row = new GameObject("ClockRow");
+        row.transform.SetParent(parent, false);
+        var rowLayout = row.AddComponent<LayoutElement>();
+        rowLayout.preferredHeight = 62f;
+        rowLayout.minHeight = 62f;
+        var group = row.AddComponent<HorizontalLayoutGroup>();
+        group.spacing = 8f;
+        group.childAlignment = TextAnchor.MiddleCenter;
+        group.childControlWidth = true;
+        group.childControlHeight = true;
+        group.childForceExpandWidth = true;
+        group.childForceExpandHeight = true;
+
+        var black = new GameObject("BlackClock");
+        black.transform.SetParent(row.transform, false);
+        blackClockView = black.AddComponent<GoClockView>();
+
+        var white = new GameObject("WhiteClock");
+        white.transform.SetParent(row.transform, false);
+        whiteClockView = white.AddComponent<GoClockView>();
     }
 
     void BuildMoveLogScroll(Transform parent)
@@ -1501,6 +1619,83 @@ public class GoGame : MonoBehaviour
         scorePopup.SetActive(false);
     }
 
+    void BuildTerminalDialogs(Transform canvasRoot)
+    {
+        resignDialog = BuildDialogRoot(canvasRoot, "ResignDialog", out Transform resignCard);
+        var resignLayout = resignCard.gameObject.AddComponent<VerticalLayoutGroup>();
+        resignLayout.padding = new RectOffset(28, 28, 24, 22);
+        resignLayout.spacing = 10f;
+        resignLayout.childAlignment = TextAnchor.MiddleCenter;
+        resignLayout.childControlWidth = true;
+        resignLayout.childControlHeight = true;
+        resignLayout.childForceExpandWidth = true;
+        resignLayout.childForceExpandHeight = false;
+        MakeText(resignCard, "确认认输？", 26, Ink, TextAnchor.MiddleCenter);
+        resignDialogResult = MakeText(resignCard, "", 18, Accent, TextAnchor.MiddleCenter);
+        var resignButtons = MakeRow(resignCard, 44f);
+        MakeButton(resignButtons, "确认认输", 44f, ConfirmResignDialog);
+        MakeButton(resignButtons, "取消", 44f, CancelResignDialog);
+        resignDialog.SetActive(false);
+
+        scoreDialog = BuildDialogRoot(canvasRoot, "ScoreDialog", out Transform scoreCard);
+        var scoreLayout = scoreCard.gameObject.AddComponent<VerticalLayoutGroup>();
+        scoreLayout.padding = new RectOffset(28, 28, 24, 22);
+        scoreLayout.spacing = 10f;
+        scoreLayout.childAlignment = TextAnchor.MiddleCenter;
+        scoreLayout.childControlWidth = true;
+        scoreLayout.childControlHeight = true;
+        scoreLayout.childForceExpandWidth = true;
+        scoreLayout.childForceExpandHeight = false;
+        MakeText(scoreCard, "确认数目", 26, Ink, TextAnchor.MiddleCenter);
+        scoreDialogDetails = MakeText(scoreCard, "", 16, Ink, TextAnchor.MiddleCenter);
+        scoreDialogDetails.supportRichText = false;
+        var scoreButtons = MakeRow(scoreCard, 44f);
+        MakeButton(scoreButtons, "确认数目", 44f, ConfirmScoreDialog);
+        MakeButton(scoreButtons, "取消", 44f, CancelScoreDialog);
+        scoreDialog.SetActive(false);
+
+        timeoutDialog = BuildDialogRoot(canvasRoot, "TimeoutDialog", out Transform timeoutCard);
+        var timeoutLayout = timeoutCard.gameObject.AddComponent<VerticalLayoutGroup>();
+        timeoutLayout.padding = new RectOffset(28, 28, 24, 22);
+        timeoutLayout.spacing = 12f;
+        timeoutLayout.childAlignment = TextAnchor.MiddleCenter;
+        timeoutLayout.childControlWidth = true;
+        timeoutLayout.childControlHeight = true;
+        timeoutLayout.childForceExpandWidth = true;
+        timeoutLayout.childForceExpandHeight = false;
+        MakeText(timeoutCard, "对局结束", 26, Ink, TextAnchor.MiddleCenter);
+        timeoutDialogResult = MakeText(timeoutCard, "", 18, Accent, TextAnchor.MiddleCenter);
+        var timeoutButtons = MakeRow(timeoutCard, 44f);
+        MakeButton(timeoutButtons, "保存棋谱", 44f, TimeoutSaveKifu);
+        MakeButton(timeoutButtons, "再来一局", 44f, TimeoutReplay);
+        MakeButton(timeoutButtons, "返回主界面", 44f, TimeoutReturnHome);
+        timeoutDialog.SetActive(false);
+    }
+
+    GameObject BuildDialogRoot(Transform canvasRoot, string name, out Transform card)
+    {
+        var root = new GameObject(name);
+        root.transform.SetParent(canvasRoot, false);
+        var overlay = root.AddComponent<Image>();
+        overlay.color = new Color(0.05f, 0.04f, 0.03f, 0.78f);
+        overlay.raycastTarget = true;
+        var rootRect = root.GetComponent<RectTransform>();
+        rootRect.anchorMin = Vector2.zero;
+        rootRect.anchorMax = Vector2.one;
+        rootRect.offsetMin = rootRect.offsetMax = Vector2.zero;
+
+        var cardGo = new GameObject("Card");
+        cardGo.transform.SetParent(root.transform, false);
+        var cardImage = cardGo.AddComponent<Image>();
+        cardImage.color = new Color(0.16f, 0.13f, 0.09f, 1f);
+        var cardRect = cardGo.GetComponent<RectTransform>();
+        cardRect.anchorMin = cardRect.anchorMax = new Vector2(0.5f, 0.5f);
+        cardRect.pivot = new Vector2(0.5f, 0.5f);
+        cardRect.sizeDelta = new Vector2(500f, 250f);
+        card = cardGo.transform;
+        return root;
+    }
+
     void RefreshMoveLog()
     {
         if (moveLogText == null || rules == null) return;
@@ -1536,6 +1731,7 @@ public class GoGame : MonoBehaviour
         HideScorePopup();
         WipeBoardState();
         BuildBoard();
+        if (vsAI) StartPlayClock();
         Refresh();
         Flash("棋盘已清空");
     }
@@ -1549,28 +1745,122 @@ public class GoGame : MonoBehaviour
     void HumanResign()
     {
         if (reviewingKifu || aiBusy || inMenu || rules.Result != null) return;
-        if (vsAI) rules.ResignBy(humanColor);
-        else rules.Resign();
-        Refresh();
-        ShowResultPopup(rules.Result);
+        ShowResignDialog();
     }
 
     void OpenScorePopup()
     {
-        if (reviewingKifu || scorePopup == null || rules == null) return;
-        rules.EstimateSituation(out float bs, out float ws,
-            out _, out _, out _, out _, out _, out _, out _);
-        float diff = bs - ws;
-        string line;
-        if (diff > 0.05f) line = $"黑胜{diff:0.0}目";
-        else if (diff < -0.05f) line = $"白胜{-diff:0.0}目";
-        else line = "双方打平";
-        ShowResultPopup(line);
+        ShowScoreDialog();
+    }
+
+    void ShowResignDialog()
+    {
+        if (resignDialog == null || reviewingKifu || inMenu || rules == null
+            || rules.Result != null || rules.Phase != GoPhase.Play) return;
+        int resignColor = rules.Turn;
+        resignDialogResult.text = "本局将记录为：\n" + GoResultFormatter.FormatResign(resignColor);
+        resignDialog.SetActive(true);
+        UpdateClockPauseState();
+    }
+
+    void ConfirmResignDialog()
+    {
+        if (rules == null || rules.Result != null) return;
+        rules.ResignBy(rules.Turn);
+        if (resignDialog != null) resignDialog.SetActive(false);
+        StopPlayClock();
+        SaveTerminalDraft();
+        Refresh();
+        ShowResultPopup(rules.Result);
+    }
+
+    void CancelResignDialog()
+    {
+        if (resignDialog != null) resignDialog.SetActive(false);
+        UpdateClockPauseState();
+    }
+
+    void ShowScoreDialog()
+    {
+        if (scoreDialog == null || reviewingKifu || inMenu || rules == null
+            || rules.Result != null) return;
+        if (rules.Phase != GoPhase.Scoring)
+        {
+            Flash("双方各停一手后才能数目");
+            return;
+        }
+
+        rules.ComputeScore(out float blackScore, out float whiteScore,
+            out int blackStones, out int blackTerritory,
+            out int whiteStones, out int whiteTerritory);
+        float difference = Mathf.Abs(blackScore - whiteScore);
+        scoreDialogDetails.text =
+            $"黑方：{blackScore:0.0} 目（棋子 {blackStones} · 实地 {blackTerritory}）\n" +
+            $"白方：{whiteScore:0.0} 目（棋子 {whiteStones} · 实地 {whiteTerritory} · 贴目 {rules.Komi:0.0}）\n" +
+            $"差值：{difference:0.0} 目";
+        scoreDialog.SetActive(true);
+        UpdateClockPauseState();
+    }
+
+    void ConfirmScoreDialog()
+    {
+        if (rules == null || rules.Phase != GoPhase.Scoring) return;
+        rules.ConfirmEnd();
+        if (scoreDialog != null) scoreDialog.SetActive(false);
+        StopPlayClock();
+        SaveTerminalDraft();
+        Refresh();
+        ShowResultPopup(rules.Result);
+    }
+
+    void CancelScoreDialog()
+    {
+        if (scoreDialog != null) scoreDialog.SetActive(false);
+        UpdateClockPauseState();
+    }
+
+    void ShowTimeoutDialog(int loserColor)
+    {
+        lastResultLine = GoResultFormatter.FormatTimeout(loserColor);
+        if (timeoutDialog == null)
+        {
+            ShowResultPopup(lastResultLine);
+            return;
+        }
+        timeoutDialogResult.text = lastResultLine;
+        timeoutDialog.SetActive(true);
+        UpdateClockPauseState();
+        audioManager?.PlaySfx("game_end");
+    }
+
+    void TimeoutSaveKifu()
+    {
+        if (timeoutDialog != null) timeoutDialog.SetActive(false);
+        FillKifuForm();
+        if (kifuForm != null) kifuForm.SetActive(true);
+    }
+
+    void TimeoutReplay()
+    {
+        if (timeoutDialog != null) timeoutDialog.SetActive(false);
+        ClearBoardKeepPlaying();
+    }
+
+    void TimeoutReturnHome()
+    {
+        if (timeoutDialog != null) timeoutDialog.SetActive(false);
+        ScorePopupReturnHome();
+    }
+
+    void SaveTerminalDraft()
+    {
+        if (inStudyMode) SaveStudyProgress();
     }
 
     void ShowResultPopup(string title)
     {
         if (scorePopup == null) return;
+        StopPlayClock();
         audioManager?.PlaySfx("game_end");
         lastResultLine = title;
         scorePopupTitle.text = title;
@@ -1582,6 +1872,10 @@ public class GoGame : MonoBehaviour
     {
         if (scorePopup != null) scorePopup.SetActive(false);
         if (kifuForm != null) kifuForm.SetActive(false);
+        if (resignDialog != null) resignDialog.SetActive(false);
+        if (scoreDialog != null) scoreDialog.SetActive(false);
+        if (timeoutDialog != null) timeoutDialog.SetActive(false);
+        UpdateClockPauseState();
     }
 
     void ScorePopupReturnHome()
@@ -2414,6 +2708,7 @@ public class GoGame : MonoBehaviour
     void OpenKifuReview(KifuRecord rec)
     {
         if (rec == null) return;
+        StopPlayClock();
         audioManager?.PlayMusic("bgm_review");
         reviewingKifu = true;
         reviewRec = rec;
@@ -3150,10 +3445,12 @@ public class GoGame : MonoBehaviour
         if (btnUndo != null) btnUndo.SetActive(!rev);
         if (btnPass != null) btnPass.SetActive(!rev);
         if (btnResign != null) btnResign.SetActive(!rev);
-        btnClear.SetActive(!rev);
-        btnScore.SetActive(!rev);
+        if (btnClear != null) btnClear.SetActive(false);
+        if (btnScore != null) btnScore.SetActive(!rev);
         if (reviewAiRoot != null) reviewAiRoot.SetActive(rev);
         if (commentModuleRoot != null) commentModuleRoot.SetActive(rev);
+        if (studySaveStatusText != null)
+            studySaveStatusText.gameObject.SetActive(inStudyMode && !rev);
         if (homeBtnLabel != null) homeBtnLabel.text = rev ? "返回棋谱" : "返回主界面";
 
         if (boardSkin != null)
@@ -3173,13 +3470,10 @@ public class GoGame : MonoBehaviour
             turnText.text = $"{reviewRec.title}\n{names}\n{res}第 {reviewPly}/{reviewTotal} 手 · 轮到{who}落子";
         }
         else if (rules.Result != null) turnText.text = rules.Result;
-        else if (aiBusy) turnText.text = (aiColor == GoRules.BLACK ? "黑棋" : "白棋")
-            + (opponentChoice == 1 ? "（KataGo）思考中…" : opponentChoice == 2 ? "（大模型）思考中…" : "（AI）思考中…");
         else
         {
-            string who = rules.Turn == GoRules.BLACK ? "黑棋" : "白棋";
-            if (inStudyMode) turnText.text = who + "落子";
-            else turnText.text = who + "落子" + (rules.Turn == humanColor ? "（你）" : "（AI）");
+            string who = rules.Turn == GoRules.BLACK ? "黑方" : "白方";
+            turnText.text = $"第 {rules.MoveCount + 1} 手 · {who}行棋";
         }
 
         RefreshMoveLog();
@@ -3192,6 +3486,7 @@ public class GoGame : MonoBehaviour
             DrawWinrateChart(reviewPly);
             UpdateReviewInfoText(reviewPly);
         }
+        UpdateClockPauseState();
     }
 
     /* ---------------- KataGo 复盘分析与变化推演 ---------------- */
@@ -4174,6 +4469,7 @@ public class GoGame : MonoBehaviour
 
     void OnDestroy()
     {
+        StopPlayClock();
         if (audioManager != null) audioManager.SavePrefs();
         GoKataGo.Shutdown();
     }
