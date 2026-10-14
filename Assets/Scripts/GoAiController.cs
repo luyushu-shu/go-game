@@ -2,6 +2,37 @@ using System;
 using System.Collections;
 using UnityEngine;
 
+// Publishes an async AI result exactly once. The volatile published flag is
+// written only after the result, so readers can never observe "done" first.
+public sealed class GoAiCompletionLatch
+{
+    int claimed;
+    int published;
+    GoMoveResult result;
+
+    public bool TryPublish(GoMoveResult value)
+    {
+        if (System.Threading.Interlocked.CompareExchange(ref claimed, 1, 0) != 0)
+            return false;
+
+        result = value ?? GoMoveResult.Fail("本地引擎未返回结果");
+        System.Threading.Volatile.Write(ref published, 1);
+        return true;
+    }
+
+    public bool TryGetResult(out GoMoveResult value)
+    {
+        if (System.Threading.Volatile.Read(ref published) == 0)
+        {
+            value = null;
+            return false;
+        }
+
+        value = result;
+        return true;
+    }
+}
+
 // 统一调度 KataGo、LLM 与本地 MCTS AI，处理异常恢复、降级与并发保护
 public class GoAiController : MonoBehaviour
 {
@@ -69,26 +100,23 @@ public class GoAiController : MonoBehaviour
             if (result == null)
             {
                 float budget = boardSize <= 9 ? 2.0f : boardSize <= 13 ? 3.2f : 4.2f;
-                int searchDone = 0;
+                var completion = new GoAiCompletionLatch();
                 try
                 {
-                    GoAI.SearchAsync(rules, aiColor, budget, res =>
-                    {
-                        if (System.Threading.Interlocked.Exchange(ref searchDone, 1) == 0)
-                            result = res ?? GoMoveResult.Fail("本地引擎未返回结果");
-                    });
+                    GoAI.SearchAsync(rules, aiColor, budget, res => completion.TryPublish(res));
                 }
                 catch (Exception ex)
                 {
-                    result = GoMoveResult.Fail("本地引擎启动失败: " + ex.Message);
-                    System.Threading.Interlocked.Exchange(ref searchDone, 1);
+                    completion.TryPublish(GoMoveResult.Fail("本地引擎启动失败: " + ex.Message));
                 }
 
-                while (System.Threading.Thread.VolatileRead(ref searchDone) == 0)
+                GoMoveResult localResult;
+                while (!completion.TryGetResult(out localResult))
                 {
                     if (requestId != activeRequestId) yield break;
                     yield return null;
                 }
+                result = localResult;
 
                 if (result != null && !result.isPass && result.winrate >= 0f && result.winrate < 0.18f && rules.MoveCount > 80)
                 {

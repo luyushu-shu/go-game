@@ -66,3 +66,17 @@ Result: no output; exit code 0.
 
 - No real KataGo executable was available in the worktree, so process-kill behavior was verified through the deterministic response-reader seam and compile/custom tests rather than a live engine integration test. The production path uses the same reader and process cleanup code.
 - The pre-existing untracked `docs/superpowers/plans/` directory was intentionally left untouched.
+
+## Residual concurrency follow-up
+
+The user explicitly requested a follow-up modification after the scoped re-review identified two new Important concurrency risks in commit `9555e8a`.
+
+- `GoAiController` now uses `GoAiCompletionLatch`: the result is assigned before a volatile publication flag, readers acquire that flag before reading the result, and duplicate completion attempts are ignored. The coroutine can no longer observe completion before the result is visible.
+- `GoAI.SearchAsync` now clones the board and position hashes and captures size, komi, move count, and last move on the caller/main thread before scheduling `Task.Run`. The worker no longer reads the live `GoRules` instance, so cancellation or a new-game reset cannot race the snapshot.
+- Added deterministic editor regressions for publication ordering/exactly-once completion and for resetting a live 9路 `GoRules` to 19路 while the worker is held after snapshot capture.
+
+Validation:
+
+- `qiyi-residual-fix-compile.log`: Tundra build success; batch mode exited successfully; no C# compilation errors.
+- `qiyi-residual-fix-tests.log`: `[GoAiTests] All AI tests passed successfully!` and `ALL TESTS PASSED SUCCESSFULLY!`.
+- `git diff --check`: no output.

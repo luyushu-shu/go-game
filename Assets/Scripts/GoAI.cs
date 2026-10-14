@@ -13,6 +13,12 @@ public static class GoAI
     public static bool ResultIsPass;
     public static double BestWinRate;
 
+#if UNITY_EDITOR
+    // Test seam: lets editor regression tests hold the worker after the
+    // caller-thread snapshot has been captured.
+    public static Action BeforeWorkerSearchForTests;
+#endif
+
     const int PASS = -1;
     const int ExpandVisits = 8;
     const double RaveEquiv = 3500.0;
@@ -52,39 +58,64 @@ public static class GoAI
         SearchId++;
         int myId = SearchId;
         SearchDone = false;
+
+        if (g == null)
+        {
+            if (myId == SearchId) SearchDone = true;
+            onComplete?.Invoke(GoMoveResult.Fail("规则引擎未初始化"));
+            return;
+        }
+
+        int n;
+        int[] board;
+        HashSet<long> hist;
+        float komi;
+        int moveCount;
+        int lastMove;
+        try
+        {
+            // GoRules belongs to the Unity/main thread. Capture every value the
+            // worker needs before Task.Run so reset/cancel cannot race the search.
+            n = g.Size;
+            board = (int[])g.Board.Clone();
+            hist = g.ExportHashes();
+            komi = g.Komi;
+            moveCount = g.MoveCount;
+            lastMove = g.LastMove;
+        }
+        catch (Exception ex)
+        {
+            if (myId == SearchId) SearchDone = true;
+            onComplete?.Invoke(GoMoveResult.Fail("本地引擎快照失败: " + ex.Message));
+            return;
+        }
+
         System.Threading.Tasks.Task.Run(() =>
         {
             GoMoveResult result = null;
             try
             {
-                if (g == null)
+#if UNITY_EDITOR
+                BeforeWorkerSearchForTests?.Invoke();
+#endif
+                var rng = new Random();
+                var fb = new FastBoard(n, board, color, hist, komi, moveCount, lastMove);
+                int best = Mcts(fb, seconds, rng, out double wr);
+                if (best == PASS)
                 {
-                    result = GoMoveResult.Fail("规则引擎未初始化");
+                    result = GoMoveResult.Pass();
+                    result.winrate = (float)wr;
                 }
                 else
                 {
-                    int n = g.Size;
-                    int[] board = (int[])g.Board.Clone();
-                    var hist = g.ExportHashes();
-                    var rng = new Random();
-                    var fb = new FastBoard(n, board, color, hist, g.Komi, g.MoveCount, g.LastMove);
-                    int best = Mcts(fb, seconds, rng, out double wr);
-                    if (best == PASS)
-                    {
-                        result = GoMoveResult.Pass();
-                        result.winrate = (float)wr;
-                    }
-                    else
-                    {
-                        result = GoMoveResult.Move(best % n, best / n, (float)wr);
-                    }
+                    result = GoMoveResult.Move(best % n, best / n, (float)wr);
+                }
 
-                    if (myId == SearchId)
-                    {
-                        ResultIsPass = result.isPass;
-                        if (!ResultIsPass) { ResultX = result.x; ResultY = result.y; }
-                        BestWinRate = wr;
-                    }
+                if (myId == SearchId)
+                {
+                    ResultIsPass = result.isPass;
+                    if (!ResultIsPass) { ResultX = result.x; ResultY = result.y; }
+                    BestWinRate = wr;
                 }
             }
             catch (Exception ex)

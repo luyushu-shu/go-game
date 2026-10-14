@@ -14,6 +14,8 @@ public static class GoAiTests
         TestKataGoResponseReaderTimeoutAndFraming();
         TestLocalMctsSearch();
         TestLocalMctsFailureCompletes();
+        TestCompletionLatchPublishesResultBeforeDone();
+        TestLocalMctsUsesCallerThreadSnapshot();
         Debug.Log("[GoAiTests] All AI tests passed successfully!");
     }
 
@@ -96,5 +98,64 @@ public static class GoAiTests
         Assert(done, "Invalid local search must still complete its callback");
         Assert(result != null && !result.success, "Invalid local search must return a failure result");
         Assert(!string.IsNullOrEmpty(result.error), "Failure result should explain the search error");
+    }
+
+    public static void TestCompletionLatchPublishesResultBeforeDone()
+    {
+        for (int i = 0; i < 100; i++)
+        {
+            var latch = new GoAiCompletionLatch();
+            var expected = GoMoveResult.Move(i % 9, (i / 9) % 9);
+            System.Threading.Tasks.Task.Run(() => latch.TryPublish(expected));
+
+            GoMoveResult actual = null;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (!latch.TryGetResult(out actual) && sw.ElapsedMilliseconds < 2000)
+                System.Threading.Thread.Sleep(1);
+
+            Assert(actual != null, "Published completion must expose a result");
+            Assert(object.ReferenceEquals(expected, actual), "Completion must publish the expected result before done");
+            Assert(!latch.TryPublish(GoMoveResult.Fail("duplicate")), "Completion must publish exactly once");
+        }
+    }
+
+    public static void TestLocalMctsUsesCallerThreadSnapshot()
+    {
+        var rules = new GoRules(9);
+        for (int i = 0; i < rules.Board.Length; i++)
+            rules.Board[i] = GoRules.BLACK;
+
+        GoMoveResult result = null;
+        bool done = false;
+        using (var releaseWorker = new System.Threading.ManualResetEventSlim(false))
+        {
+            GoAI.BeforeWorkerSearchForTests = () => releaseWorker.Wait(2000);
+            try
+            {
+                GoAI.SearchAsync(rules, GoRules.WHITE, 0.01f, res =>
+                {
+                    result = res;
+                    done = true;
+                });
+
+                // If the worker still reads GoRules, this reset changes the search
+                // to an empty 19x19 board. A caller-thread snapshot stays full 9x9.
+                rules.Reset(19);
+                releaseWorker.Set();
+
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                while (!done && sw.ElapsedMilliseconds < 5000)
+                    System.Threading.Thread.Sleep(10);
+            }
+            finally
+            {
+                releaseWorker.Set();
+                GoAI.BeforeWorkerSearchForTests = null;
+            }
+        }
+
+        Assert(done, "Snapshot-isolation search should complete");
+        Assert(result != null && result.success, "Snapshot-isolation search should return a result");
+        Assert(result.isPass, "The full 9x9 snapshot should pass even after the live rules reset to 19x19");
     }
 }
