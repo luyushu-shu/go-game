@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -45,6 +46,72 @@ public class KataGameAnalysis
         string.IsNullOrEmpty(json) ? null : JsonUtility.FromJson<KataGameAnalysis>(json);
 }
 
+// Receives complete stdout lines without ever calling the blocking ReadLine API.
+// The small public seam is also used by editor regression tests without KataGo.
+public sealed class GoKataGoResponseReader : IDisposable
+{
+    readonly ConcurrentQueue<string> lines = new ConcurrentQueue<string>();
+    readonly AutoResetEvent lineReady = new AutoResetEvent(false);
+    volatile bool completed;
+    bool disposed;
+
+    public void AddLine(string line)
+    {
+        if (disposed) return;
+        if (line == null) completed = true;
+        else lines.Enqueue(line);
+        try { lineReady.Set(); } catch (ObjectDisposedException) { }
+    }
+
+    public bool TryReadUntilBlank(int timeoutMs, out string response)
+    {
+        response = null;
+        var sb = new StringBuilder();
+        var sw = Stopwatch.StartNew();
+        while (true)
+        {
+            while (lines.TryDequeue(out string line))
+            {
+                if (line.Length == 0)
+                {
+                    if (sb.Length > 0)
+                    {
+                        response = sb.ToString();
+                        return true;
+                    }
+                    continue;
+                }
+                if (sb.Length > 0) sb.Append('\n');
+                sb.Append(line);
+            }
+            if (completed) return false;
+            int remaining = timeoutMs - (int)sw.ElapsedMilliseconds;
+            if (remaining <= 0) return false;
+            try
+            {
+                if (!lineReady.WaitOne(remaining)) return false;
+            }
+            catch (ObjectDisposedException)
+            {
+                return false;
+            }
+        }
+    }
+
+    public void Complete()
+    {
+        if (disposed) return;
+        completed = true;
+        try { lineReady.Set(); } catch (ObjectDisposedException) { }
+    }
+
+    public void Dispose()
+    {
+        disposed = true;
+        try { lineReady.Dispose(); } catch { }
+    }
+}
+
 // 通过 GTP 调用本机 KataGo（Tools/KataGo）。
 public static class GoKataGo
 {
@@ -59,8 +126,39 @@ public static class GoKataGo
     public static bool ResultIsPass, ResultIsResign;
     public static string LastError;
     public static volatile bool CancelRequested = false;
+    static volatile bool shutdownRequested;
 
-    static Process proc;
+    public const int GenMoveRequestTimeoutMs = 120000;
+    const int ProcessCleanupTimeoutMs = 2000;
+
+    sealed class ProcessState : IDisposable
+    {
+        public readonly Process Process;
+        public readonly GoKataGoResponseReader Output = new GoKataGoResponseReader();
+
+        public ProcessState(Process process)
+        {
+            Process = process;
+            process.OutputDataReceived += OnOutput;
+            process.Exited += OnExited;
+        }
+
+        void OnOutput(object sender, DataReceivedEventArgs args) { Output.AddLine(args.Data); }
+        void OnExited(object sender, EventArgs args) { Output.Complete(); }
+
+        public void Dispose()
+        {
+            Output.Complete();
+            try { Process.CancelOutputRead(); } catch { }
+            try { Process.CancelErrorRead(); } catch { }
+            try { Process.OutputDataReceived -= OnOutput; } catch { }
+            try { Process.Exited -= OnExited; } catch { }
+            Output.Dispose();
+            try { Process.Dispose(); } catch { }
+        }
+    }
+
+    static ProcessState processState;
     static readonly object gate = new object();
     static string exePath, modelPath, cfgPath;
 
@@ -107,19 +205,19 @@ public static class GoKataGo
 
     public static void Shutdown()
     {
-        lock (gate)
+        shutdownRequested = true;
+        try
         {
-            try
+            // Interrupt an in-flight response before taking the serialized gate.
+            TerminateCurrentProcess();
+            lock (gate)
             {
-                if (proc != null && !proc.HasExited)
-                {
-                    try { proc.StandardInput.WriteLine("quit"); proc.StandardInput.Flush(); }
-                    catch { }
-                    if (!proc.WaitForExit(800)) proc.Kill();
-                }
+                TerminateCurrentProcess();
             }
-            catch { }
-            proc = null;
+        }
+        finally
+        {
+            shutdownRequested = false;
         }
     }
 
@@ -145,6 +243,11 @@ public static class GoKataGo
 
     public static IEnumerator GenMoveAsync(GoRules rules, int color, int handicap, Func<int, int, int[]> handicapPts, Action<GoMoveResult> onComplete)
     {
+        if (rules == null)
+        {
+            onComplete?.Invoke(GoMoveResult.Fail("规则引擎未初始化"));
+            yield break;
+        }
         if (!IsAvailable())
         {
             onComplete?.Invoke(GoMoveResult.Fail("未找到 KataGo"));
@@ -193,7 +296,18 @@ public static class GoKataGo
                 err = e.Message;
             }
         });
-        while (!task.IsCompleted) yield return null;
+        var requestClock = Stopwatch.StartNew();
+        while (!task.IsCompleted && requestClock.ElapsedMilliseconds < GenMoveRequestTimeoutMs)
+            yield return null;
+        if (!task.IsCompleted)
+        {
+            TerminateCurrentProcess();
+            var cleanupClock = Stopwatch.StartNew();
+            while (!task.IsCompleted && cleanupClock.ElapsedMilliseconds < ProcessCleanupTimeoutMs)
+                yield return null;
+            onComplete?.Invoke(GoMoveResult.Fail("KataGo 请求超时"));
+            yield break;
+        }
         if (!string.IsNullOrEmpty(err))
         {
             onComplete?.Invoke(GoMoveResult.Fail(err));
@@ -219,29 +333,33 @@ public static class GoKataGo
     {
         lock (gate)
         {
-            if (proc != null)
+            if (shutdownRequested)
             {
-                if (!proc.HasExited) return true;
-                try { proc.Dispose(); } catch { }
-                proc = null;
+                LastError = "KataGo 正在关闭";
+                return false;
+            }
+            if (processState != null)
+            {
+                if (!processState.Process.HasExited) return true;
+                DisposeProcessState(Interlocked.Exchange(ref processState, null), false);
             }
             ResolvePaths();
             try
             {
-                proc = Start(exePath);
-                if (proc.HasExited)
+                processState = Start(exePath);
+                if (processState.Process.HasExited)
                 {
                     string eigen = Path.Combine(Dir(), "katago-eigen.exe");
                     if (File.Exists(eigen) && eigen != exePath)
                     {
-                        try { proc.Dispose(); } catch { }
-                        proc = Start(eigen);
+                        DisposeProcessState(Interlocked.Exchange(ref processState, null), false);
+                        processState = Start(eigen);
                     }
                 }
-                if (proc == null || proc.HasExited)
+                if (processState == null || processState.Process.HasExited)
                 {
                     LastError = "KataGo 未能启动";
-                    proc = null;
+                    DisposeProcessState(Interlocked.Exchange(ref processState, null), false);
                     return false;
                 }
                 SendBlock("protocol_version");
@@ -250,13 +368,13 @@ public static class GoKataGo
             catch (Exception e)
             {
                 LastError = e.Message;
-                proc = null;
+                TerminateCurrentProcess();
                 return false;
             }
         }
     }
 
-    static Process Start(string exe)
+    static ProcessState Start(string exe)
     {
         var psi = new ProcessStartInfo
         {
@@ -272,19 +390,24 @@ public static class GoKataGo
             StandardErrorEncoding = Encoding.UTF8
         };
         var p = Process.Start(psi);
+        var state = new ProcessState(p);
         p.ErrorDataReceived += (_, ev) => { };
+        p.EnableRaisingEvents = true;
         p.BeginErrorReadLine();
-        return p;
+        p.BeginOutputReadLine();
+        return state;
     }
 
     static string SendBlock(string commands)
     {
         lock (gate)
         {
-            if (proc == null || proc.HasExited)
+            if (shutdownRequested) throw new Exception("KataGo 正在关闭");
+            if (processState == null || processState.Process.HasExited)
             {
                 if (!EnsureProcess()) throw new Exception(LastError ?? "KataGo 进程未运行");
             }
+            ProcessState state = processState;
             var parts = commands.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
             string last = "";
             foreach (var raw in parts)
@@ -293,14 +416,15 @@ public static class GoKataGo
                 if (line.Length == 0) continue;
                 try
                 {
-                    proc.StandardInput.WriteLine(line);
-                    proc.StandardInput.Flush();
-                    last = ReadUntilBlank(120000);
+                    state.Process.StandardInput.WriteLine(line);
+                    state.Process.StandardInput.Flush();
+                    last = ReadUntilBlank(state, GenMoveRequestTimeoutMs);
                 }
                 catch (Exception ex)
                 {
-                    try { proc?.Kill(); } catch { }
-                    proc = null;
+                    TerminateCurrentProcess();
+                    if (ex is TimeoutException)
+                        throw new Exception("KataGo 请求超时", ex);
                     throw new Exception("KataGo 通信失败: " + ex.Message);
                 }
             }
@@ -308,24 +432,30 @@ public static class GoKataGo
         }
     }
 
-    static string ReadUntilBlank(int timeoutMs)
+    static string ReadUntilBlank(ProcessState state, int timeoutMs)
     {
-        var sb = new StringBuilder();
-        var sw = Stopwatch.StartNew();
-        while (sw.ElapsedMilliseconds < timeoutMs)
+        if (state == null || state.Process.HasExited)
+            throw new Exception("KataGo 进程已退出");
+        if (state.Output.TryReadUntilBlank(timeoutMs, out string response)) return response;
+        throw new TimeoutException("KataGo stdout 响应超时");
+    }
+
+    static void TerminateCurrentProcess()
+    {
+        ProcessState state = Interlocked.Exchange(ref processState, null);
+        DisposeProcessState(state, true);
+    }
+
+    static void DisposeProcessState(ProcessState state, bool kill)
+    {
+        if (state == null) return;
+        try
         {
-            if (proc == null || proc.HasExited) break;
-            string line = proc.StandardOutput.ReadLine();
-            if (line == null) break;
-            if (line.Length == 0)
-            {
-                if (sb.Length > 0) return sb.ToString();
-                continue;
-            }
-            if (sb.Length > 0) sb.Append('\n');
-            sb.Append(line);
+            if (kill && !state.Process.HasExited) state.Process.Kill();
         }
-        return sb.ToString();
+        catch { }
+        try { state.Process.WaitForExit(800); } catch { }
+        state.Dispose();
     }
 
     static bool ParseGenmove(string reply, out int x, out int y, out bool pass, out bool resign)

@@ -36,59 +36,77 @@ public class GoAiController : MonoBehaviour
 
         GoMoveResult result = null;
         string fallbackNotice = null;
+        bool completionSent = false;
 
-        if (opponentChoice == 1) // KataGo
+        try
         {
-            yield return GoKataGo.GenMoveAsync(rules, aiColor, handicap, handicapPts, res => result = res);
-            if (requestId != activeRequestId) yield break;
-
-            if (result == null || !result.success)
+            if (opponentChoice == 1) // KataGo
             {
-                string errMsg = result?.error ?? "KataGo 异常";
-                fallbackNotice = "KataGo 失败，改用本地引擎：" + errMsg;
-                result = null;
-            }
-        }
-        else if (opponentChoice == 2 && GoLlmAi.IsConfigured()) // LLM
-        {
-            yield return GoLlmAi.RequestMoveAsync(rules, aiColor, res => result = res);
-            if (requestId != activeRequestId) yield break;
-
-            if (result == null || !result.success)
-            {
-                string errMsg = result?.error ?? "大模型选点失败";
-                fallbackNotice = "大模型失败，改用本地引擎：" + errMsg;
-                result = null;
-            }
-        }
-
-        // 如果选用本地 AI 或上述 AI 失败，降级使用本地 MCTS
-        if (result == null)
-        {
-            float budget = boardSize <= 9 ? 2.0f : boardSize <= 13 ? 3.2f : 4.2f;
-            bool searchDone = false;
-            GoAI.SearchAsync(rules, aiColor, budget, res =>
-            {
-                result = res;
-                searchDone = true;
-            });
-
-            while (!searchDone)
-            {
+                yield return GoKataGo.GenMoveAsync(rules, aiColor, handicap, handicapPts, res => result = res);
                 if (requestId != activeRequestId) yield break;
-                yield return null;
+
+                if (result == null || !result.success)
+                {
+                    string errMsg = result?.error ?? "KataGo 异常";
+                    fallbackNotice = "KataGo 失败，改用本地引擎：" + errMsg;
+                    result = null;
+                }
+            }
+            else if (opponentChoice == 2 && GoLlmAi.IsConfigured()) // LLM
+            {
+                yield return GoLlmAi.RequestMoveAsync(rules, aiColor, res => result = res);
+                if (requestId != activeRequestId) yield break;
+
+                if (result == null || !result.success)
+                {
+                    string errMsg = result?.error ?? "大模型选点失败";
+                    fallbackNotice = "大模型失败，改用本地引擎：" + errMsg;
+                    result = null;
+                }
             }
 
-            if (result != null && !result.isPass && result.winrate >= 0f && result.winrate < 0.18f && rules.MoveCount > 80)
+            // 如果选用本地 AI 或上述 AI 失败，降级使用本地 MCTS
+            if (result == null)
             {
-                result = GoMoveResult.Resign();
+                float budget = boardSize <= 9 ? 2.0f : boardSize <= 13 ? 3.2f : 4.2f;
+                int searchDone = 0;
+                try
+                {
+                    GoAI.SearchAsync(rules, aiColor, budget, res =>
+                    {
+                        if (System.Threading.Interlocked.Exchange(ref searchDone, 1) == 0)
+                            result = res ?? GoMoveResult.Fail("本地引擎未返回结果");
+                    });
+                }
+                catch (Exception ex)
+                {
+                    result = GoMoveResult.Fail("本地引擎启动失败: " + ex.Message);
+                    System.Threading.Interlocked.Exchange(ref searchDone, 1);
+                }
+
+                while (System.Threading.Thread.VolatileRead(ref searchDone) == 0)
+                {
+                    if (requestId != activeRequestId) yield break;
+                    yield return null;
+                }
+
+                if (result != null && !result.isPass && result.winrate >= 0f && result.winrate < 0.18f && rules.MoveCount > 80)
+                {
+                    result = GoMoveResult.Resign();
+                }
             }
         }
-
-        IsBusy = false;
-        if (requestId == activeRequestId)
+        finally
         {
-            onComplete?.Invoke(result ?? GoMoveResult.Fail("AI 计算失败"), fallbackNotice);
+            if (requestId == activeRequestId)
+            {
+                IsBusy = false;
+                if (!completionSent)
+                {
+                    completionSent = true;
+                    onComplete?.Invoke(result ?? GoMoveResult.Fail("AI 计算失败"), fallbackNotice);
+                }
+            }
         }
     }
 }

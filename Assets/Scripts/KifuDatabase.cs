@@ -61,6 +61,11 @@ public static class KifuDatabase
 
     static KifuCatalog cache;
 
+    public static bool IsSupportedBoardSize(int size)
+    {
+        return size == 9 || size == 13 || size == 19;
+    }
+
     public static IReadOnlyList<KifuRecord> All()
     {
         EnsureLoaded();
@@ -100,13 +105,10 @@ public static class KifuDatabase
             error = "棋谱记录不能为空";
             return false;
         }
-        if (rec.boardSize != 9 && rec.boardSize != 13 && rec.boardSize != 19)
+        if (!IsSupportedBoardSize(rec.boardSize))
         {
-            if (rec.boardSize <= 0 || rec.boardSize > 25)
-            {
-                error = $"不支持的棋盘路数: {rec.boardSize}";
-                return false;
-            }
+            error = $"不支持的棋盘路数: {rec.boardSize}";
+            return false;
         }
         return true;
     }
@@ -176,7 +178,7 @@ public static class KifuDatabase
     public static string BuildSgf(KifuRecord record)
     {
         record = record ?? new KifuRecord();
-        int size = record.boardSize > 0 ? record.boardSize : 19;
+        int size = IsSupportedBoardSize(record.boardSize) ? record.boardSize : 19;
         var sb = new System.Text.StringBuilder(256);
         sb.Append("(;GM[1]FF[4]CA[UTF-8]")
             .Append("SZ[").Append(size.ToString(CultureInfo.InvariantCulture)).Append(']')
@@ -312,11 +314,20 @@ public static class KifuDatabase
         foreach (var item in catalog.items)
         {
             if (item == null) continue;
-            if (item.schemaVersion <= 0) item.schemaVersion = 1;
-            if (item.boardSize <= 0) item.boardSize = 19;
-            if (item.title == null) item.title = "";
-            if (item.playedAt == null) item.playedAt = "";
-            if (item.mode == null) item.mode = "";
+            MigrateRecord(item);
+        }
+
+        // Legacy JSON can contain sizes that the fixed 19x19 rules/hash tables
+        // cannot represent. Remove those records before history/replay callers
+        // can construct GoRules with them.
+        for (int i = catalog.items.Count - 1; i >= 0; i--)
+        {
+            KifuRecord item = catalog.items[i];
+            if (item != null && !ValidateRecord(item, out string error))
+            {
+                Debug.LogWarning("[KifuDatabase] 忽略无效棋谱记录 " + (item.id ?? "<无 id>") + ": " + error);
+                catalog.items.RemoveAt(i);
+            }
         }
     }
 
@@ -427,5 +438,6 @@ public static class KifuDatabase
     public static void ResetForTesting(KifuCatalog newCatalog = null)
     {
         cache = newCatalog ?? new KifuCatalog();
+        MigrateCatalog(cache);
     }
 }

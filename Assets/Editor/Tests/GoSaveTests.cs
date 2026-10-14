@@ -14,10 +14,11 @@ public static class GoSaveTests
         TestKifuRecordValidation();
         TestKifuRecordAddAndQuery();
         TestKifuMigration();
+        TestLegacyUnsupportedBoardRecordsAreRemoved();
         TestStudyProgressSaveAndLoad();
         TestTerminalStudyProgressPreservesResult();
         TestStudySaveValidation();
-        Debug.Log("[GoSaveTests] All 6 persistence tests passed successfully!");
+        Debug.Log("[GoSaveTests] All persistence tests passed successfully!");
     }
 
     public static void TestKifuRecordValidation()
@@ -25,13 +26,15 @@ public static class GoSaveTests
         bool okNull = KifuDatabase.ValidateRecord(null, out string errNull);
         Assert(!okNull && !string.IsNullOrEmpty(errNull), "Null record should fail validation");
 
-        var invalidSize = new KifuRecord { boardSize = 50, title = "test" };
-        bool okSize = KifuDatabase.ValidateRecord(invalidSize, out string errSize);
-        Assert(!okSize && !string.IsNullOrEmpty(errSize), "Invalid board size should fail validation");
-
-        var valid = new KifuRecord { boardSize = 19, title = "Valid Game" };
-        bool okValid = KifuDatabase.ValidateRecord(valid, out _);
-        Assert(okValid, "Valid record should pass validation");
+        int[] sizes = { 1, 9, 13, 19, 20, 25 };
+        bool[] expected = { false, true, true, true, false, false };
+        for (int i = 0; i < sizes.Length; i++)
+        {
+            var record = new KifuRecord { boardSize = sizes[i], title = "size " + sizes[i] };
+            bool ok = KifuDatabase.ValidateRecord(record, out string error);
+            Assert(ok == expected[i], "Unexpected validation result for board size " + sizes[i]);
+            if (!expected[i]) Assert(!string.IsNullOrEmpty(error), "Invalid size should report an error");
+        }
     }
 
     public static void TestKifuRecordAddAndQuery()
@@ -70,6 +73,23 @@ public static class GoSaveTests
         bool ok = KifuDatabase.TryAdd(legacyRec, out _);
         Assert(ok, "Adding legacy record should succeed and auto-migrate");
         Assert(legacyRec.schemaVersion >= 1, "schemaVersion should be migrated to >= 1");
+    }
+
+    public static void TestLegacyUnsupportedBoardRecordsAreRemoved()
+    {
+        KifuDatabase.ResetForTesting(new KifuCatalog
+        {
+            items = new System.Collections.Generic.List<KifuRecord>
+            {
+                new KifuRecord { id = "bad20", boardSize = 20 },
+                new KifuRecord { id = "good13", boardSize = 13 },
+                new KifuRecord { id = "bad25", boardSize = 25 }
+            }
+        });
+
+        var records = KifuDatabase.All();
+        Assert(records.Count == 1, "Unsupported legacy records must not remain usable");
+        Assert(records[0].id == "good13", "The supported legacy record should be retained");
     }
 
     public static void TestStudyProgressSaveAndLoad()

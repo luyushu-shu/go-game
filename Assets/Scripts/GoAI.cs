@@ -49,36 +49,56 @@ public static class GoAI
 
     public static void SearchAsync(GoRules g, int color, float seconds, Action<GoMoveResult> onComplete)
     {
-        int n = g.Size;
-        int[] board = (int[])g.Board.Clone();
-        var hist = g.ExportHashes();
         SearchId++;
         int myId = SearchId;
         SearchDone = false;
         System.Threading.Tasks.Task.Run(() =>
         {
-            var rng = new Random();
-            var fb = new FastBoard(n, board, color, hist, g.Komi, g.MoveCount, g.LastMove);
-            int best = Mcts(fb, seconds, rng, out double wr);
-            if (myId != SearchId) return;
-
-            GoMoveResult result;
-            if (best == PASS)
+            GoMoveResult result = null;
+            try
             {
-                result = GoMoveResult.Pass();
-                result.winrate = (float)wr;
+                if (g == null)
+                {
+                    result = GoMoveResult.Fail("规则引擎未初始化");
+                }
+                else
+                {
+                    int n = g.Size;
+                    int[] board = (int[])g.Board.Clone();
+                    var hist = g.ExportHashes();
+                    var rng = new Random();
+                    var fb = new FastBoard(n, board, color, hist, g.Komi, g.MoveCount, g.LastMove);
+                    int best = Mcts(fb, seconds, rng, out double wr);
+                    if (best == PASS)
+                    {
+                        result = GoMoveResult.Pass();
+                        result.winrate = (float)wr;
+                    }
+                    else
+                    {
+                        result = GoMoveResult.Move(best % n, best / n, (float)wr);
+                    }
+
+                    if (myId == SearchId)
+                    {
+                        ResultIsPass = result.isPass;
+                        if (!ResultIsPass) { ResultX = result.x; ResultY = result.y; }
+                        BestWinRate = wr;
+                    }
+                }
             }
-            else
+            catch (Exception ex)
             {
-                result = GoMoveResult.Move(best % n, best / n, (float)wr);
+                result = GoMoveResult.Fail("本地引擎异常: " + ex.Message);
+            }
+            finally
+            {
+                if (myId == SearchId) SearchDone = true;
             }
 
-            ResultIsPass = result.isPass;
-            if (!ResultIsPass) { ResultX = result.x; ResultY = result.y; }
-            BestWinRate = wr;
-            SearchDone = true;
-
-            onComplete?.Invoke(result);
+            // A superseded search still completes its callback exactly once. The
+            // controller can then discard it by request id without waiting forever.
+            onComplete?.Invoke(result ?? GoMoveResult.Fail("本地引擎未返回结果"));
         });
     }
 

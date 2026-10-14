@@ -11,7 +11,9 @@ public static class GoAiTests
     public static void RunAll()
     {
         TestMoveResultFactory();
+        TestKataGoResponseReaderTimeoutAndFraming();
         TestLocalMctsSearch();
+        TestLocalMctsFailureCompletes();
         Debug.Log("[GoAiTests] All AI tests passed successfully!");
     }
 
@@ -59,5 +61,40 @@ public static class GoAiTests
         Assert(result.success, "Search result should be success: " + result.error);
         Assert((result.x >= 0 && result.y >= 0 && result.x < 9 && result.y < 9) || result.isPass,
             $"Result move ({result.x},{result.y}) must be valid or pass");
+    }
+
+    public static void TestKataGoResponseReaderTimeoutAndFraming()
+    {
+        using (var reader = new GoKataGoResponseReader())
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            bool timedOut = reader.TryReadUntilBlank(40, out _);
+            Assert(!timedOut, "An incomplete KataGo response should time out");
+            Assert(sw.ElapsedMilliseconds < 1000, "Response timeout must not block on ReadLine");
+
+            reader.AddLine("= protocol_version 2");
+            reader.AddLine("");
+            Assert(reader.TryReadUntilBlank(100, out string response), "A blank-terminated response should complete");
+            Assert(response == "= protocol_version 2", "Response framing should preserve the response line");
+        }
+    }
+
+    public static void TestLocalMctsFailureCompletes()
+    {
+        GoMoveResult result = null;
+        bool done = false;
+        GoAI.SearchAsync(null, GoRules.BLACK, 0.1f, res =>
+        {
+            result = res;
+            done = true;
+        });
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (!done && sw.ElapsedMilliseconds < 5000)
+            System.Threading.Thread.Sleep(20);
+
+        Assert(done, "Invalid local search must still complete its callback");
+        Assert(result != null && !result.success, "Invalid local search must return a failure result");
+        Assert(!string.IsNullOrEmpty(result.error), "Failure result should explain the search error");
     }
 }

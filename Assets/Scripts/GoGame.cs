@@ -663,65 +663,73 @@ public class GoGame : MonoBehaviour
         int requestAiColor = aiColor;
         GoAiController requestController = aiController;
         aiBusy = true;
-        Refresh();
-        yield return null;
-        if (!IsCurrentAiTurn(requestEpoch, requestRules, requestAiColor, requestController))
-            yield break;
-
-        GoMoveResult result = null;
-        string notice = null;
-
-        yield return requestController.RequestAiMove(
-            requestRules,
-            requestAiColor,
-            opponentChoice,
-            boardSize,
-            handicap,
-            HandicapPoints,
-            (res, fallback) =>
-            {
-                result = res;
-                notice = fallback;
-            });
-
-        if (!IsCurrentAiTurn(requestEpoch, requestRules, requestAiColor, requestController))
-            yield break;
-
-        if (!string.IsNullOrEmpty(notice)) Flash(notice);
-
-        if (result != null && result.success)
+        try
         {
-            if (result.isResign)
+            Refresh();
+            yield return null;
+            if (!IsCurrentAiTurn(requestEpoch, requestRules, requestAiColor, requestController))
+                yield break;
+
+            GoMoveResult result = null;
+            string notice = null;
+
+            yield return requestController.RequestAiMove(
+                requestRules,
+                requestAiColor,
+                opponentChoice,
+                boardSize,
+                handicap,
+                HandicapPoints,
+                (res, fallback) =>
+                {
+                    result = res;
+                    notice = fallback;
+                });
+
+            if (!IsCurrentAiTurn(requestEpoch, requestRules, requestAiColor, requestController))
+                yield break;
+
+            if (!string.IsNullOrEmpty(notice)) Flash(notice);
+
+            if (result != null && result.success)
             {
-                rules.ResignBy(aiColor);
-                StopPlayClock();
-                SaveTerminalDraft();
-                ShowResultPopup(rules.Result);
+                if (result.isResign)
+                {
+                    rules.ResignBy(aiColor);
+                    StopPlayClock();
+                    SaveTerminalDraft();
+                    ShowResultPopup(rules.Result);
+                }
+                else if (result.isPass)
+                {
+                    rules.Pass();
+                    clockController?.SetTurn(rules.Turn);
+                    string who = opponentChoice == 1 ? "KataGo" : opponentChoice == 2 ? "电脑" : "AI";
+                    Flash(rules.Phase == GoPhase.Scoring ? "双方停一手，进入数子" : who + " 停一手");
+                }
+                else if (!rules.Play(result.x, result.y, out string msg))
+                {
+                    Flash(msg);
+                }
+                else
+                {
+                    audioManager?.PlaySfx("stone_place");
+                    clockController?.SetTurn(rules.Turn);
+                }
             }
-            else if (result.isPass)
+            else if (result != null && !string.IsNullOrEmpty(result.error))
             {
-                rules.Pass();
-                clockController?.SetTurn(rules.Turn);
-                string who = opponentChoice == 1 ? "KataGo" : opponentChoice == 2 ? "电脑" : "AI";
-                Flash(rules.Phase == GoPhase.Scoring ? "双方停一手，进入数子" : who + " 停一手");
-            }
-            else if (!rules.Play(result.x, result.y, out string msg))
-            {
-                Flash(msg);
-            }
-            else
-            {
-                audioManager?.PlaySfx("stone_place");
-                clockController?.SetTurn(rules.Turn);
+                Flash("AI 无法落子: " + result.error);
             }
         }
-        else if (result != null && !string.IsNullOrEmpty(result.error))
+        finally
         {
-            Flash("AI 无法落子: " + result.error);
+            if (requestEpoch == gameEpoch && requestRules == rules && requestController == aiController)
+            {
+                aiBusy = false;
+                Refresh();
+            }
         }
-
-        aiBusy = false;
-        Refresh();
     }
 
     bool IsCurrentAiTurn(int requestEpoch, GoRules requestRules, int requestAiColor,
@@ -3128,6 +3136,11 @@ public class GoGame : MonoBehaviour
     void OpenKifuReview(KifuRecord rec)
     {
         if (rec == null) return;
+        if (!KifuDatabase.ValidateRecord(rec, out string recordError))
+        {
+            Flash("棋谱无法打开：" + recordError);
+            return;
+        }
         ClearResumedKifuSession();
         InvalidateAiTurn();
         StopPlayClock();
