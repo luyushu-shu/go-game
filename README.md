@@ -91,6 +91,8 @@
 Tuanjie.exe -batchmode -nographics -projectPath . -runTests -testPlatform EditMode -testResults Logs/editmode-results.xml -logFile Logs/editmode.log -quit
 ```
 
+本轮发布候选验收结果：标准 EditMode 共 42 项，42 项通过，0 项失败，0 项跳过；项目自定义规则、存档和 AI 回归也全部通过。
+
 ### 项目自定义回归
 
 规则、存档和 AI 的既有自定义入口为 `TestRunner.RunAllTests`：
@@ -117,7 +119,7 @@ Tuanjie.exe -batchmode -quit -projectPath . -executeMethod BuildScript.BuildWind
 
 ## 当前环境限制
 
-本仓库的批处理环境可执行脚本编译、项目自定义 TestRunner、静态回归矩阵和 Windows 构建；当前受管 headless 编辑器不会可靠执行标准 EditMode XML runner（可能出现 `Scan Filter Count: 0` 且无 XML），因此不能以此冒充 NUnit 交互通过。当前环境也没有可用的交互式 Game/Play Mode 输入通道，1920×1080、1600×900、1366×768 的人工点击验收、真实音频播放和干净 Windows 无编辑器启动验收需要在相应桌面环境补做。
+本轮已完成脚本编译、标准 EditMode 42/42、项目自定义回归、Windows 构建，以及 1920×1080、1600×900、1366×768 三种分辨率的玩家启动烟测。仍需在具备真实 KataGo 程序与模型的环境中补做引擎联调；人工点击流程、视觉细节、真实音频播放和独立干净 Windows 机器验收仍建议在发布前由 QA 完成。
 
 ## 代码结构
 
