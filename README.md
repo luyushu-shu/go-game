@@ -91,7 +91,7 @@
 Tuanjie.exe -batchmode -nographics -projectPath . -runTests -testPlatform EditMode -testResults Logs/editmode-results.xml -logFile Logs/editmode.log -quit
 ```
 
-本轮发布候选验收结果：标准 EditMode 共 42 项，42 项通过，0 项失败，0 项跳过；项目自定义规则、存档和 AI 回归也全部通过。
+本轮发布候选验收结果：基础 EditMode 共 42 项，42 项通过；在配置真实 KataGo 引擎和模型后，包含实时 GTP 联调的扩展 EditMode 共 45 项，45 项通过，0 项失败，0 项跳过；项目自定义规则、存档和 AI 回归也全部通过。
 
 ### 项目自定义回归
 
@@ -119,7 +119,7 @@ Tuanjie.exe -batchmode -quit -projectPath . -executeMethod BuildScript.BuildWind
 
 ## 当前环境限制
 
-本轮已完成脚本编译、标准 EditMode 42/42、项目自定义回归、Windows 构建，以及 1920×1080、1600×900、1366×768 三种分辨率的玩家启动烟测。仍需在具备真实 KataGo 程序与模型的环境中补做引擎联调；人工点击流程、视觉细节、真实音频播放和独立干净 Windows 机器验收仍建议在发布前由 QA 完成。
+本轮已完成脚本编译、基础 EditMode 42/42、带真实 KataGo 的扩展 EditMode 45/45、项目自定义回归、Windows 构建，以及 1920×1080、1600×900、1366×768 三种分辨率的玩家启动烟测。人工点击流程、视觉细节、真实音频播放和独立干净 Windows 机器验收仍建议在发布前由 QA 完成。
 
 ## 代码结构
 

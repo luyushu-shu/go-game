@@ -100,4 +100,13 @@ Final evidence:
 - Windows build log `qiyi-final-windows-build-round4.log`: `Build Finished, Result: Success.` and `BUILD OK -> Builds/Windows/GoGame.exe`.
 - Final player startup logs at 1920×1080, 1600×900, and 1366×768: each process initialized and remained running for the smoke interval; zero matches for Exception, NullReference, ArgumentException, IndexOutOfRange, or Crash.
 
-Environment limitations that remain: no real KataGo executable/model integration test, no manual click-through/visual screenshot inspection, and no separate clean-Windows machine or VM test. KataGo absence is explicitly detected by the build and the local-MCTS fallback remains enabled.
+Environment limitations at the time of the original fix wave were: no real KataGo executable/model integration test, no manual click-through/visual screenshot inspection, and no separate clean-Windows machine or VM test. The later live-engine follow-up below closes the first item; KataGo absence remains explicitly detected by the build and the local-MCTS fallback remains enabled.
+
+## Live KataGo integration follow-up
+
+- Temporarily installed the official KataGo v1.18.1 Eigen AVX2 Windows engine and an official kata1 transformer network into the ignored `Tools/KataGo/` directory for this acceptance run. These third-party files are intentionally not committed.
+- The direct GTP smoke test completed protocol handshake, 9路 board setup, Chinese rules setup, one `genmove B` request returning `E5`, and clean process exit.
+- Added `GoKataGoIntegrationTests`, an optional Unity EditMode test that skips when the local engine is absent and exercises `GoKataGo.GenMoveAsync` when the configured executable/model are available.
+- With the live engine present, the complete standard EditMode suite passed 45/45, including the live integration test. The previously malformed GUIDs in six existing editor test `.meta` files were also replaced with valid unique Unity GUIDs so the test assets are no longer ignored during import.
+
+Remaining release-only validation is limited to manual click-through/visual and audio inspection plus a separate clean-Windows machine or VM. The current workstation has already completed the real KataGo integration path.
