@@ -88,7 +88,7 @@
 测试资产位于 `Assets/Tests/Editor/`，包括时间、计时、结果、棋盘主题、SGF 和 UI token 测试。使用编辑器菜单 `Window → General → Test Runner` 选择 EditMode；也可使用命令行：
 
 ```powershell
-Tuanjie.exe -batchmode -nographics -projectPath . -runTests -testPlatform EditMode -testResults Logs/editmode-results.xml -logFile Logs/editmode.log -quit
+Tuanjie.exe -batchmode -nographics -projectPath . -runTests -testPlatform EditMode -testResults Logs/editmode-results.xml -logFile Logs/editmode.log
 ```
 
 本轮发布候选验收结果：基础 EditMode 共 42 项，42 项通过；在配置真实 KataGo 引擎和模型后，包含实时 GTP 联调的扩展 EditMode 共 45 项，45 项通过，0 项失败，0 项跳过；项目自定义规则、存档和 AI 回归也全部通过。
