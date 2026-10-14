@@ -2,6 +2,7 @@ using System.IO;
 using UnityEditor;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.TestTools;
 using UnityEngine.UI;
 
 public class GoUiThemeTests
@@ -44,13 +45,45 @@ public class GoUiThemeTests
 
         try
         {
+            LogAssert.Expect(LogType.Error,
+                "Missing runtime button sprite: UI/Buttons/button_primary_9slice_256");
             AssertButtonNormalColor(factory, root.transform, GoButtonStyle.Primary, theme.Gold);
+            LogAssert.Expect(LogType.Error,
+                "Missing runtime button sprite: UI/Buttons/button_secondary_9slice_256");
             AssertButtonNormalColor(factory, root.transform, GoButtonStyle.Secondary, theme.Ink700);
+            LogAssert.Expect(LogType.Error,
+                "Missing runtime button sprite: UI/Buttons/button_danger_9slice_256");
             AssertButtonNormalColor(factory, root.transform, GoButtonStyle.Danger, theme.Cinnabar);
+            LogAssert.Expect(LogType.Error,
+                "Missing runtime button sprite: UI/Buttons/button_secondary_9slice_256");
             AssertButtonNormalColor(factory, root.transform, GoButtonStyle.Icon, theme.Ink800);
         }
         finally
         {
+            Object.DestroyImmediate(root);
+            Object.DestroyImmediate(theme);
+        }
+    }
+
+    [Test]
+    public void SliderContainersAreCreatedWithRectTransforms()
+    {
+        var theme = GoUiTheme.CreateRuntimeDefault(null);
+        var root = new GameObject("GoUiSliderTestRoot", typeof(RectTransform));
+        var factoryRoot = new GameObject("GoUiFactoryTestHost");
+        var factory = factoryRoot.AddComponent<GoUiFactory>();
+        factory.Theme = theme;
+
+        try
+        {
+            var slider = factory.MakeSlider(root.transform, "Volume", 0.5f, null);
+            Assert.IsNotNull(slider.GetComponent<RectTransform>());
+            Assert.IsNotNull(slider.fillRect);
+            Assert.IsInstanceOf<RectTransform>(slider.fillRect.parent);
+        }
+        finally
+        {
+            Object.DestroyImmediate(factoryRoot);
             Object.DestroyImmediate(root);
             Object.DestroyImmediate(theme);
         }

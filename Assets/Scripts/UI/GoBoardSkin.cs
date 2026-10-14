@@ -116,10 +116,11 @@ public sealed class GoBoardSkin : MonoBehaviour
             point.transform.SetParent(BoardRoot, false);
             point.transform.localPosition = (Vector3)GridToLocal(x, y, size, cellSize);
 
-            var stone = point.AddComponent<SpriteRenderer>();
-            stone.sortingOrder = 1;
-            stone.enabled = false;
-            stoneRenderers[x, y] = stone;
+            // Keep the intersection transform at unit scale. Scaling a renderer
+            // attached directly to Point would also shrink its Dead/Territory/
+            // Mark children a second time (0.92 * 0.92 world size).
+            stoneRenderers[x, y] = AddSpriteChild(point.transform, "Stone", null, 1,
+                PointWorldSize(cellSize));
 
             deadRenderers[x, y] = AddSpriteChild(point.transform, "Dead", DeadMarkerSprite, 2,
                 PointWorldSize(cellSize));

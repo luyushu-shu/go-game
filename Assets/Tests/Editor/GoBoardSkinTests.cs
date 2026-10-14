@@ -1,5 +1,6 @@
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 public class GoBoardSkinTests
 {
@@ -44,6 +45,11 @@ public class GoBoardSkinTests
     [Test]
     public void BoardAndPointSpritesMapImportedPixelsToWorldUnitsOnAllBoardSizes()
     {
+        // EditMode runs without the startup-scene manifest. The catalog must
+        // report the three missing toolbar icons before using visible fallbacks.
+        LogAssert.Expect(LogType.Error, "Missing runtime icon sprite: UI/Icons/icon_board_moves_64");
+        LogAssert.Expect(LogType.Error, "Missing runtime icon sprite: UI/Icons/icon_board_coordinates_64");
+        LogAssert.Expect(LogType.Error, "Missing runtime icon sprite: UI/Icons/icon_board_situation_64");
         foreach (int size in new[] { 9, 13, 19 })
         {
             var root = new GameObject("BoardSkinSizingTest_" + size);
@@ -59,7 +65,7 @@ public class GoBoardSkinTests
 
             var point = skin.BoardRoot.Find("Point_0_0");
             Assert.AreEqual(GoBoardSkin.PointWorldSize(1f),
-                point.GetComponent<SpriteRenderer>().bounds.size.x, 0.001f);
+                point.Find("Stone").GetComponent<SpriteRenderer>().bounds.size.x, 0.001f);
             Assert.AreEqual(GoBoardSkin.PointWorldSize(1f),
                 point.Find("Dead").GetComponent<SpriteRenderer>().bounds.size.x, 0.001f);
             Assert.AreEqual(GoBoardSkin.MarkerWorldSize(1f),

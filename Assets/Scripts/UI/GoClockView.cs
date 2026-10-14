@@ -102,8 +102,11 @@ public sealed class GoClockView : MonoBehaviour
     {
         if (timeText != null && stateText != null) return;
 
-        var root = transform;
         var layout = GetComponent<LayoutElement>() ?? gameObject.AddComponent<LayoutElement>();
+        // LayoutElement may replace a plain Transform with RectTransform. Read
+        // transform only after the UI component exists so we never retain the
+        // destroyed pre-conversion Transform in EditMode or dynamic callers.
+        var root = transform;
         layout.preferredHeight = 54f;
         layout.minHeight = 54f;
         layout.flexibleWidth = 1f;
@@ -129,7 +132,7 @@ public sealed class GoClockView : MonoBehaviour
 
     static Text CreateText(Transform parent, string objectName, int size, Color color, TextAnchor anchor)
     {
-        var go = new GameObject(objectName);
+        var go = new GameObject(objectName, typeof(RectTransform));
         go.transform.SetParent(parent, false);
         var text = go.AddComponent<Text>();
         text.font = Font.CreateDynamicFontFromOSFont(new[] { "Microsoft YaHei", "SimHei", "Arial" }, size);

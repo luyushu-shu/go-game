@@ -257,7 +257,11 @@ public sealed class GoUiFactory : MonoBehaviour
 
     GameObject CreateChild(Transform parent, string objectName)
     {
-        var go = new GameObject(string.IsNullOrEmpty(objectName) ? "UI" : objectName);
+        // Every object created by this factory is a uGUI element. Creating the
+        // RectTransform up front keeps container-only children (for example a
+        // Slider fill area) valid before any Graphic component is attached.
+        var go = new GameObject(string.IsNullOrEmpty(objectName) ? "UI" : objectName,
+            typeof(RectTransform));
         if (parent != null) go.transform.SetParent(parent, false);
         return go;
     }

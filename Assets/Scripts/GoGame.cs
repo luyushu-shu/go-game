@@ -3916,7 +3916,9 @@ public class GoGame : MonoBehaviour
     Image AttachButtonIcon(Button button, string key)
     {
         if (button == null || string.IsNullOrEmpty(key)) return null;
-        var iconGo = new GameObject("Icon");
+        // A plain GameObject starts with Transform, so querying RectTransform
+        // before adding a UI component returns null in a player build.
+        var iconGo = new GameObject("Icon", typeof(RectTransform));
         iconGo.transform.SetParent(button.transform, false);
         var rect = iconGo.GetComponent<RectTransform>();
         rect.anchorMin = rect.anchorMax = new Vector2(0f, 0.5f);

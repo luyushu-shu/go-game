@@ -80,3 +80,24 @@ Validation:
 - `qiyi-residual-fix-compile.log`: Tundra build success; batch mode exited successfully; no C# compilation errors.
 - `qiyi-residual-fix-tests.log`: `[GoAiTests] All AI tests passed successfully!` and `ALL TESTS PASSED SUCCESSFULLY!`.
 - `git diff --check`: no output.
+
+## Windows player and full EditMode acceptance follow-up
+
+The latest Windows player initially exposed two release-only UI construction defects that editor compilation had not exercised:
+
+- `GoGame.AttachButtonIcon` queried `RectTransform` on a plain `GameObject`; it now creates the icon with `RectTransform` explicitly.
+- `GoUiFactory` now creates every uGUI child with `RectTransform`, including Slider fill-area containers that have no Graphic component of their own.
+
+Running the complete standard EditMode suite then exposed and closed two additional correctness gaps:
+
+- `GoBoardSkin` no longer scales the intersection parent when sizing a stone. The stone has its own child renderer, so dead/territory/mark children are not scaled twice.
+- `GoClockView` acquires its root transform after `LayoutElement` has established the `RectTransform`, and clock text children are created with `RectTransform` directly.
+
+Final evidence:
+
+- Standard EditMode XML `qiyi-editmode-all-round3.xml`: 42 total, 42 passed, 0 failed, 0 skipped.
+- Project custom regression log `qiyi-final-custom-tests.log`: GoRules, GoSave, and GoAi groups passed; `ALL TESTS PASSED SUCCESSFULLY!`.
+- Windows build log `qiyi-final-windows-build-round4.log`: `Build Finished, Result: Success.` and `BUILD OK -> Builds/Windows/GoGame.exe`.
+- Final player startup logs at 1920×1080, 1600×900, and 1366×768: each process initialized and remained running for the smoke interval; zero matches for Exception, NullReference, ArgumentException, IndexOutOfRange, or Crash.
+
+Environment limitations that remain: no real KataGo executable/model integration test, no manual click-through/visual screenshot inspection, and no separate clean-Windows machine or VM test. KataGo absence is explicitly detected by the build and the local-MCTS fallback remains enabled.
