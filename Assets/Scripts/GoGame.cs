@@ -273,6 +273,7 @@ public class GoGame : MonoBehaviour
     static readonly string ReduceMotionKey = "Qiyi.ReduceMotion";
     readonly List<GameObject> settingsSectionRoots = new List<GameObject>();
     readonly List<Button> settingsSectionButtons = new List<Button>();
+    readonly Dictionary<string, Sprite> settingsArt = new Dictionary<string, Sprite>();
 
     GoUiTheme uiTheme;
     GoUiFactory uiFactory;
@@ -2376,8 +2377,8 @@ public class GoGame : MonoBehaviour
             -GoUiTheme.SafeAreaMarginCanvasY(Screen.width, Screen.height));
 
         restoredMenuTitle = LoadRestoredMenuSprite("menu_title", new Rect(56f, 40f, 2090f, 640f));
-        restoredMenuPrimary = LoadRestoredMenuSprite("menu_primary", new Rect(0f, 170f, 1980f, 460f));
-        restoredMenuSecondary = LoadRestoredMenuSprite("menu_secondary", new Rect(0f, 145f, 2146f, 450f));
+        restoredMenuPrimary = LoadRestoredMenuPlaque("menu_primary", 0.31f, 0.40f);
+        restoredMenuSecondary = LoadRestoredMenuPlaque("menu_secondary", 0.27f, 0.49f);
         restoredSettingsIcon = LoadRestoredMenuSprite("menu_settings", new Rect(120f, 120f, 1020f, 1020f));
         restoredVolumeIcon = LoadRestoredMenuSprite("menu_volume", new Rect(256f, 294f, 784f, 630f));
         restoredMuteIcon = LoadRestoredMenuSprite("menu_mute", new Rect(312f, 270f, 704f, 704f));
@@ -2424,10 +2425,23 @@ public class GoGame : MonoBehaviour
         subtitleRect.sizeDelta = new Vector2(360f, 28f);
         subtitleRect.anchoredPosition = new Vector2(0f, -133f);
 
-        CreateRestoredMenuButton("打谱", -205f, StartStudyGame, true, false);
-        CreateRestoredMenuButton("人机对弈", -293f, ShowAiSetup);
-        CreateRestoredMenuButton("历史棋谱", -381f, ShowHistoryPanel);
-        CreateRestoredMenuButton("退出", -469f, QuitGame);
+        var menuActions = new GameObject("MenuActions", typeof(RectTransform), typeof(VerticalLayoutGroup));
+        menuActions.transform.SetParent(mainPanel.transform, false);
+        var actionsRect = menuActions.GetComponent<RectTransform>();
+        actionsRect.anchorMin = actionsRect.anchorMax = new Vector2(0.5f, 1f);
+        actionsRect.pivot = new Vector2(0.5f, 1f);
+        actionsRect.anchoredPosition = new Vector2(0f, -184f);
+        actionsRect.sizeDelta = new Vector2(370f, 208f);
+        var actionsLayout = menuActions.GetComponent<VerticalLayoutGroup>();
+        actionsLayout.spacing = 8f;
+        actionsLayout.childAlignment = TextAnchor.UpperCenter;
+        actionsLayout.childControlWidth = actionsLayout.childControlHeight = true;
+        actionsLayout.childForceExpandWidth = true;
+        actionsLayout.childForceExpandHeight = false;
+        CreateRestoredMenuButton(menuActions.transform, "打谱", StartStudyGame, true, false);
+        CreateRestoredMenuButton(menuActions.transform, "人机对弈", ShowAiSetup);
+        CreateRestoredMenuButton(menuActions.transform, "历史棋谱", ShowHistoryPanel);
+        CreateRestoredMenuButton(menuActions.transform, "退出", QuitGame);
 
         aiSetupPanel = BuildMenuPanel("AiSetupPage", 620f, 860f, pt =>
         {
@@ -2592,27 +2606,51 @@ public class GoGame : MonoBehaviour
 
     void BuildSettingsPanel()
     {
-        settingsPanel = BuildMenuPanel("SettingsPanel", 860f, 620f, pt =>
+        settingsPanel = new GameObject("SettingsPanel", typeof(RectTransform), typeof(Image));
+        settingsPanel.transform.SetParent(menuCanvas.transform, false);
+        var panelRect = settingsPanel.GetComponent<RectTransform>();
+        panelRect.anchorMin = panelRect.anchorMax = new Vector2(0.5f, 0.5f);
+        panelRect.sizeDelta = new Vector2(1120f, 680f);
+        var pt = settingsPanel.transform;
         {
-            MakeText(pt, "设置", 32, Ink, TextAnchor.MiddleCenter);
-            MakeText(pt, "偏好会保存在本机，下次启动继续生效", 13, Dim, TextAnchor.MiddleCenter);
+            var title = new GameObject("SettingsArtTitle", typeof(RectTransform));
+            title.transform.SetParent(pt, false);
+            var headerRect = title.GetComponent<RectTransform>();
+            headerRect.anchorMin = headerRect.anchorMax = new Vector2(0.5f, 1f);
+            headerRect.anchoredPosition = new Vector2(0f, -65f);
+            headerRect.sizeDelta = new Vector2(160f, 66f);
+            var titleArt = new GameObject("TitleImage", typeof(RectTransform), typeof(Image));
+            titleArt.transform.SetParent(title.transform, false);
+            var titleRect = titleArt.GetComponent<RectTransform>();
+            titleRect.anchorMin = titleRect.anchorMax = new Vector2(0.5f, 0.5f);
+            titleRect.pivot = new Vector2(0.5f, 0.5f);
+            titleRect.anchoredPosition = Vector2.zero;
+            titleRect.sizeDelta = new Vector2(132f, 64f);
+            var titleImage = titleArt.GetComponent<Image>();
+            titleImage.sprite = LoadSettingsSprite("settings_title_v2", new Rect(400f, 180f, 940f, 500f));
+            titleImage.preserveAspect = true;
+            titleImage.raycastTarget = false;
 
-            var columns = MakeRow(pt, 0f);
-            var columnsLayout = columns.gameObject.GetComponent<LayoutElement>();
-            columnsLayout.preferredHeight = 0f;
-            columnsLayout.minHeight = 0f;
-            columnsLayout.flexibleHeight = 1f;
-            var directory = new GameObject("SettingsDirectory");
+            // Give each region its own anchors: section content cannot resize
+            // the header, directory or footer through a parent layout group.
+            var columns = new GameObject("SettingsBody", typeof(RectTransform)).GetComponent<RectTransform>();
+            columns.SetParent(pt, false);
+            columns.anchorMin = Vector2.zero;
+            columns.anchorMax = Vector2.one;
+            columns.offsetMin = new Vector2(56f, 100f);
+            columns.offsetMax = new Vector2(-56f, -124f);
+            var directory = new GameObject("SettingsDirectory", typeof(RectTransform));
             directory.transform.SetParent(columns, false);
-            var directoryLayout = directory.AddComponent<LayoutElement>();
-            directoryLayout.preferredWidth = 190f;
-            directoryLayout.minWidth = 190f;
-            directoryLayout.flexibleWidth = 0f;
+            var directoryRect = directory.GetComponent<RectTransform>();
+            directoryRect.anchorMin = Vector2.zero;
+            directoryRect.anchorMax = new Vector2(0f, 1f);
+            directoryRect.offsetMin = Vector2.zero;
+            directoryRect.offsetMax = new Vector2(180f, 0f);
             var directoryImage = directory.AddComponent<Image>();
-            directoryImage.color = new Color(0.10f, 0.08f, 0.06f, 0.94f);
+            directoryImage.color = new Color(0.80f, 0.66f, 0.42f, 0.15f);
             var directoryGroup = directory.AddComponent<VerticalLayoutGroup>();
-            directoryGroup.padding = new RectOffset(12, 12, 14, 14);
-            directoryGroup.spacing = 6f;
+            directoryGroup.padding = new RectOffset(10, 10, 12, 12);
+            directoryGroup.spacing = 9f;
             directoryGroup.childAlignment = TextAnchor.UpperCenter;
             directoryGroup.childControlWidth = true;
             directoryGroup.childControlHeight = true;
@@ -2623,19 +2661,27 @@ public class GoGame : MonoBehaviour
             for (int i = 0; i < sections.Length; i++)
             {
                 int section = i;
-                var sectionButton = MakeButton(directory.transform, sections[i], 38f,
+                var sectionButton = MakeButton(directory.transform, sections[i], 48f,
                     () => ShowSettingsSection(section));
+                StyleSettingsTab(sectionButton, i);
                 settingsSectionButtons.Add(sectionButton);
             }
 
             var content = BuildScrollBody(columns, "SettingsScroll");
-            var contentRect = content.GetComponent<RectTransform>();
-            contentRect.offsetMin = new Vector2(0f, 0f);
-            contentRect.offsetMax = new Vector2(0f, 0f);
+            var settingsScroll = content.GetComponentInParent<ScrollRect>();
+            var scrollRect = settingsScroll.GetComponent<RectTransform>();
+            scrollRect.anchorMin = Vector2.zero;
+            scrollRect.anchorMax = Vector2.one;
+            scrollRect.offsetMin = new Vector2(214f, 0f);
+            scrollRect.offsetMax = Vector2.zero;
+            settingsScroll.viewport.offsetMin = new Vector2(4f, 4f);
+            settingsScroll.viewport.offsetMax = new Vector2(-4f, -4f);
+            content.GetComponent<VerticalLayoutGroup>().padding = new RectOffset(6, 12, 6, 24);
             settingsSectionRoots.Clear();
 
             var volume = CreateSettingsSection(content, "VolumeSection");
-            MakeText(volume, "音量", 22, Ink, TextAnchor.MiddleLeft);
+            MakeSettingsSectionHeading(volume, 0);
+            MakeSettingsDivider(volume);
             settingsMasterSlider = MakeSettingsSlider(volume, "主音量",
                 audioManager != null ? audioManager.MasterVolume : GoAudioManager.DefaultMasterVolume,
                 value => audioManager?.SetMasterVolume(value));
@@ -2650,9 +2696,12 @@ public class GoGame : MonoBehaviour
                 value => audioManager?.SetWarningVolume(value));
             settingsMuteToggle = uiFactory.MakeToggle(volume, "MuteToggle", "静音",
                 audioManager != null && audioManager.IsMuted, SetMuteFromUi);
+            settingsMuteToggle.transform.Find("Label").gameObject.SetActive(false);
+            MakeSettingsOptionArt(settingsMuteToggle.transform, "静音");
 
             var appearance = CreateSettingsSection(content, "AppearanceSection");
-            MakeText(appearance, "界面", 22, Ink, TextAnchor.MiddleLeft);
+            MakeSettingsSectionHeading(appearance, 1);
+            MakeSettingsDivider(appearance);
             settingsMoveNumbersToggle = uiFactory.MakeToggle(appearance, "MoveNumbersToggle",
                 "手数", showMoveNums, value =>
                 {
@@ -2675,13 +2724,15 @@ public class GoGame : MonoBehaviour
                 "减少动效", PlayerPrefs.GetInt(ReduceMotionKey, 0) != 0, SetReduceMotion);
 
             var board = CreateSettingsSection(content, "BoardSection");
-            MakeText(board, "棋盘", 22, Ink, TextAnchor.MiddleLeft);
+            MakeSettingsSectionHeading(board, 2);
+            MakeSettingsDivider(board);
             MakeText(board, "棋盘显示选项已在‘界面’分区提供；棋盘皮肤与坐标布局沿用当前棋局设置。",
                 14, Dim, TextAnchor.UpperLeft);
             MakeReadOnlyRow(board, "当前棋盘规格").text = "9路 / 13路 / 19路（在人机设置页选择）";
 
             var engine = CreateSettingsSection(content, "EngineSection");
-            MakeText(engine, "AI引擎", 22, Ink, TextAnchor.MiddleLeft);
+            MakeSettingsSectionHeading(engine, 3);
+            MakeSettingsDivider(engine);
             settingsKataStatusText = MakeReadOnlyRow(engine, "KataGo 状态");
             settingsKataStatusText.text = GetKataGoStatus();
             var kataPath = MakeReadOnlyRow(engine, "KataGo 路径");
@@ -2696,24 +2747,341 @@ public class GoGame : MonoBehaviour
                 () => Flash("benchmark 尚未在设置页启动"));
 
             var shortcuts = CreateSettingsSection(content, "ShortcutsSection");
-            MakeText(shortcuts, "快捷键", 22, Ink, TextAnchor.MiddleLeft);
+            MakeSettingsSectionHeading(shortcuts, 4);
+            MakeSettingsDivider(shortcuts);
             MakeReadOnlyRow(shortcuts, "悔棋 / 停一手").text = "Ctrl+Z / Space";
             MakeReadOnlyRow(shortcuts, "数目 / 认输").text = "S / R";
             MakeText(shortcuts, "快捷键说明仅作当前版本占位，后续按既有入口接入。",
                 12, Dim, TextAnchor.UpperLeft);
 
             var about = CreateSettingsSection(content, "AboutSection");
-            MakeText(about, "关于", 22, Ink, TextAnchor.MiddleLeft);
+            MakeSettingsSectionHeading(about, 5);
+            MakeSettingsDivider(about);
             MakeReadOnlyRow(about, "版本").text = Application.version;
             MakeText(about, "棋弈有道 · 宋式清雅 · 夜案棋局",
                 14, Dim, TextAnchor.UpperLeft);
             MakeText(about, "本页只提供当前版本的设置说明，不改变规则、AI、历史或存档入口。",
                 12, Dim, TextAnchor.UpperLeft);
 
-            MakeButton(pt, "返回", 40f, ShowMainMenu);
+            var back = MakeButton(pt, "返回主界面", 44f, ShowMainMenu);
+            var backRect = back.GetComponent<RectTransform>();
+            backRect.anchorMin = new Vector2(0f, 0f);
+            backRect.anchorMax = new Vector2(1f, 0f);
+            backRect.pivot = new Vector2(0.5f, 0.5f);
+            backRect.offsetMin = new Vector2(64f, 38f);
+            backRect.offsetMax = new Vector2(-64f, 82f);
             ShowSettingsSection(0);
-        });
+        }
+        StyleSettingsPanel();
+        ShowSettingsSection(0);
         settingsPanel.SetActive(false);
+    }
+
+    Sprite LoadSettingsSprite(string key, Rect crop = default(Rect))
+    {
+        string cacheKey = key + ":" + crop;
+        if (settingsArt.TryGetValue(cacheKey, out var cached)) return cached;
+        var texture = Resources.Load<Texture2D>("Settings/" + key);
+        if (texture == null) return null;
+        if (crop.width <= 0f || crop.height <= 0f)
+            crop = new Rect(0f, 0f, texture.width, texture.height);
+        crop.x = Mathf.Clamp(crop.x, 0f, texture.width - 1f);
+        crop.y = Mathf.Clamp(crop.y, 0f, texture.height - 1f);
+        crop.width = Mathf.Min(crop.width, texture.width - crop.x);
+        crop.height = Mathf.Min(crop.height, texture.height - crop.y);
+        var sprite = Sprite.Create(texture, crop, new Vector2(0.5f, 0.5f));
+        settingsArt[cacheKey] = sprite;
+        return sprite;
+    }
+
+    void StyleSettingsButton(Button button)
+    {
+        if (button == null) return;
+        var image = button.GetComponent<Image>();
+        bool isBack = settingsPanel != null && button.transform.parent == settingsPanel.transform;
+        if (image != null)
+        {
+            image.sprite = isBack ? restoredMenuSecondary :
+                LoadSettingsSprite("tab_normal", new Rect(10f, 200f, 2150f, 360f));
+            if (isBack)
+            {
+                // Crop the painted plaque proportionally to its imported size.
+                var texture = Resources.Load<Texture2D>("MainMenu/menu_secondary");
+                if (texture != null)
+                    image.sprite = LoadRestoredMenuSprite("menu_secondary",
+                        new Rect(0f, texture.height * 0.27f, texture.width, texture.height * 0.49f));
+            }
+            image.type = Image.Type.Simple;
+            image.color = image.sprite != null ? Color.white : new Color(0.8f, 0.7f, 0.5f);
+        }
+        // GoUiFactory's dark ColorBlock otherwise multiplies the parchment art to black.
+        var colors = button.colors;
+        colors.normalColor = Color.white;
+        colors.highlightedColor = new Color(1f, 0.97f, 0.87f);
+        colors.pressedColor = new Color(0.88f, 0.78f, 0.61f);
+        colors.selectedColor = Color.white;
+        button.colors = colors;
+        var label = button.GetComponentInChildren<Text>();
+        if (label != null)
+        {
+            label.font = restoredMenuFont != null ? restoredMenuFont : font;
+            label.fontSize = isBack ? 24 : 22;
+            label.color = isBack ? new Color(0.98f, 0.87f, 0.68f) : new Color(0.25f, 0.15f, 0.09f);
+            label.alignment = TextAnchor.MiddleCenter;
+            label.alignByGeometry = true;
+            var fitter = label.GetComponent<ContentSizeFitter>();
+            if (fitter != null) fitter.enabled = false;
+            label.rectTransform.anchorMin = Vector2.zero;
+            label.rectTransform.anchorMax = Vector2.one;
+            label.rectTransform.offsetMin = new Vector2(24f, 2f);
+            label.rectTransform.offsetMax = new Vector2(-24f, -2f);
+        }
+        if (isBack && button.transform.Find("ReturnArtLabel") == null)
+        {
+            if (label != null) label.gameObject.SetActive(false);
+            var art = new GameObject("ReturnArtLabel", typeof(RectTransform), typeof(Image));
+            art.transform.SetParent(button.transform, false);
+            var rect = art.GetComponent<RectTransform>();
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = Vector2.zero;
+            rect.sizeDelta = new Vector2(190f, 38f);
+            var artImage = art.GetComponent<Image>();
+            artImage.sprite = LoadSettingsSprite("settings_label_back", new Rect(90f, 70f, 1990f, 590f));
+            artImage.preserveAspect = true;
+            artImage.raycastTarget = false;
+        }
+    }
+
+    Sprite SettingsSectionTitleSprite(int index)
+    {
+        string[] keys = { "tab_volume_original", "tab_appearance", "tab_board", "tab_engine", "tab_shortcuts_original", "tab_about" };
+        Rect[] crops = {
+            new Rect(180f, 75f, 1420f, 750f),
+            new Rect(280f, 95f, 1220f, 670f),
+            new Rect(280f, 140f, 1260f, 620f),
+            new Rect(300f, 150f, 1390f, 470f),
+            new Rect(370f, 110f, 1450f, 520f),
+            new Rect(400f, 155f, 1000f, 560f)
+        };
+        return LoadSettingsSprite(keys[index], crops[index]);
+    }
+
+    void MakeSettingsSectionHeading(Transform parent, int index)
+    {
+        var heading = new GameObject("SectionArtHeading", typeof(RectTransform), typeof(LayoutElement));
+        heading.transform.SetParent(parent, false);
+        heading.GetComponent<LayoutElement>().preferredHeight = 46f;
+        var art = new GameObject("ArtLabel", typeof(RectTransform), typeof(Image));
+        art.transform.SetParent(heading.transform, false);
+        var rect = art.GetComponent<RectTransform>();
+        rect.anchorMin = rect.anchorMax = new Vector2(0f, 0.5f);
+        rect.pivot = new Vector2(0f, 0.5f);
+        rect.anchoredPosition = Vector2.zero;
+        rect.sizeDelta = new Vector2(index == 3 || index == 4 ? 126f : 92f, 40f);
+        var image = art.GetComponent<Image>();
+        image.sprite = SettingsSectionTitleSprite(index);
+        image.preserveAspect = true;
+        image.raycastTarget = false;
+    }
+
+    void StyleSettingsTab(Button button, int index)
+    {
+        StyleSettingsButton(button);
+        var backing = button.GetComponent<Image>();
+        backing.sprite = null;
+        backing.color = Color.clear;
+        var title = new GameObject("ArtLabel", typeof(RectTransform), typeof(Image));
+        title.transform.SetParent(button.transform, false);
+        var rect = title.GetComponent<RectTransform>();
+        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = Vector2.zero;
+        rect.sizeDelta = new Vector2(index == 3 || index == 4 ? 122f : 100f, 36f);
+        var image = title.GetComponent<Image>();
+        image.sprite = SettingsSectionTitleSprite(index);
+        image.preserveAspect = true;
+        image.raycastTarget = false;
+        var accent = new GameObject("ArtAccent", typeof(RectTransform), typeof(Image));
+        accent.transform.SetParent(button.transform, false);
+        var accentRect = accent.GetComponent<RectTransform>();
+        accentRect.anchorMin = accentRect.anchorMax = new Vector2(0f, 0.5f);
+        accentRect.pivot = new Vector2(0f, 0.5f);
+        accentRect.anchoredPosition = new Vector2(4f, 0f);
+        accentRect.sizeDelta = new Vector2(3f, 21f);
+        accent.GetComponent<Image>().color = new Color(0.50f, 0.27f, 0.10f);
+        accent.GetComponent<Image>().raycastTarget = false;
+        accent.SetActive(false);
+        var text = button.GetComponentInChildren<Text>();
+        if (text != null) text.color = Color.clear;
+    }
+
+    void StyleSettingsSlider(Slider slider)
+    {
+        var sliderLayout = slider.GetComponent<LayoutElement>();
+        sliderLayout.preferredHeight = sliderLayout.minHeight = 52f;
+        sliderLayout.minWidth = 220f;
+        sliderLayout.flexibleWidth = 1f;
+        var track = slider.GetComponent<Image>();
+        if (track != null)
+        {
+            track.sprite = null;
+            track.color = Color.clear;
+        }
+        var trackArt = new GameObject("TrackArt", typeof(RectTransform), typeof(Image));
+        trackArt.transform.SetParent(slider.transform, false);
+        trackArt.transform.SetSiblingIndex(0);
+        var trackRect = trackArt.GetComponent<RectTransform>();
+        trackRect.anchorMin = new Vector2(0f, 0.5f);
+        trackRect.anchorMax = new Vector2(1f, 0.5f);
+        trackRect.offsetMin = new Vector2(6f, -12f);
+        trackRect.offsetMax = new Vector2(-6f, 12f);
+        var trackImage = trackArt.GetComponent<Image>();
+        trackImage.sprite = LoadSettingsSprite("slider_track", new Rect(15f, 270f, 2140f, 195f));
+        trackImage.color = Color.white;
+        trackImage.raycastTarget = false;
+        var fillArea = slider.transform.Find("Fill Area") as RectTransform;
+        fillArea.SetParent(trackRect, false);
+        fillArea.anchorMin = new Vector2(0.066f, 0.5f);
+        fillArea.anchorMax = new Vector2(0.934f, 0.5f);
+        fillArea.offsetMin = new Vector2(0f, -2f);
+        fillArea.offsetMax = new Vector2(0f, 2f);
+        fillArea.gameObject.AddComponent<RectMask2D>();
+        var fill = fillArea.Find("Fill");
+        var fillImage = fill != null ? fill.GetComponent<Image>() : null;
+        if (fillImage != null)
+        {
+            fillImage.color = new Color(0.54f, 0.29f, 0.11f, 0.75f);
+            fillImage.raycastTarget = false;
+            var fillRect = fillImage.rectTransform;
+            fillRect.offsetMin = fillRect.offsetMax = Vector2.zero;
+        }
+        var handleArea = new GameObject("Handle Slide Area", typeof(RectTransform)).GetComponent<RectTransform>();
+        handleArea.SetParent(trackRect, false);
+        // Slider drives the handle's vertical anchors to 0..1. A zero-height
+        // travel area keeps the ornament at its intended 28-pixel height.
+        handleArea.anchorMin = new Vector2(0.066f, 0.5f);
+        handleArea.anchorMax = new Vector2(0.934f, 0.5f);
+        handleArea.offsetMin = handleArea.offsetMax = Vector2.zero;
+        var handle = new GameObject("Handle", typeof(RectTransform), typeof(Image));
+        handle.transform.SetParent(handleArea, false);
+        var handleRect = handle.GetComponent<RectTransform>();
+        handleRect.anchorMin = handleRect.anchorMax = new Vector2(0.5f, 0.5f);
+        handleRect.sizeDelta = new Vector2(10f, 28f);
+        var handleImage = handle.GetComponent<Image>();
+        handleImage.sprite = LoadSettingsSprite("slider_thumb", new Rect(470f, 105f, 310f, 1040f));
+        handleImage.color = Color.white;
+        handleImage.raycastTarget = false;
+        slider.handleRect = handleRect;
+        slider.targetGraphic = handleImage;
+        var sliderColors = slider.colors;
+        sliderColors.normalColor = Color.white;
+        sliderColors.highlightedColor = new Color(1f, 0.94f, 0.78f);
+        sliderColors.selectedColor = Color.white;
+        slider.colors = sliderColors;
+    }
+
+    void StyleSettingsToggle(Toggle toggle)
+    {
+        if (toggle == null) return;
+        var toggleLayout = toggle.GetComponent<LayoutElement>();
+        if (toggleLayout != null) toggleLayout.preferredHeight = toggleLayout.minHeight = 40f;
+        var row = toggle.GetComponent<HorizontalLayoutGroup>();
+        if (row != null)
+        {
+            row.childAlignment = TextAnchor.MiddleLeft;
+            row.childForceExpandHeight = false;
+            row.spacing = 12f;
+        }
+        var legacyLabel = toggle.transform.Find("Label");
+        if (legacyLabel != null && legacyLabel.gameObject.activeSelf)
+        {
+            var caption = legacyLabel.GetComponent<Text>().text;
+            legacyLabel.gameObject.SetActive(false);
+            MakeSettingsOptionArt(toggle.transform, caption);
+        }
+        var box = toggle.transform.Find("Background");
+        var check = box != null ? box.Find("Checkmark") : null;
+        var boxImage = box != null ? box.GetComponent<Image>() : null;
+        var checkImage = check != null ? check.GetComponent<Image>() : null;
+        if (boxImage != null)
+        {
+            boxImage.sprite = LoadSettingsSprite("toggle_off", new Rect(250f, 250f, 750f, 750f));
+            boxImage.color = Color.white;
+            var layout = box.GetComponent<LayoutElement>();
+            layout.preferredWidth = layout.minWidth = 28f;
+            layout.preferredHeight = layout.minHeight = 28f;
+        }
+        if (checkImage != null)
+        {
+            checkImage.sprite = LoadSettingsSprite("toggle_on", new Rect(250f, 250f, 750f, 750f));
+            checkImage.color = Color.white;
+            var rect = check.GetComponent<RectTransform>();
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = rect.offsetMax = Vector2.zero;
+        }
+    }
+
+    void StyleSettingsPanel()
+    {
+        var panelImage = settingsPanel.GetComponent<Image>();
+        panelImage.sprite = LoadSettingsSprite("settings_background", new Rect(12f, 110f, 1512f, 830f));
+        panelImage.type = Image.Type.Simple;
+        panelImage.color = Color.white;
+        foreach (var label in settingsPanel.GetComponentsInChildren<Text>(true))
+        {
+            label.font = restoredMenuFont != null ? restoredMenuFont : font;
+            label.color = new Color(0.26f, 0.16f, 0.10f);
+            label.fontSize = Mathf.Max(22, label.fontSize);
+        }
+        foreach (var button in settingsPanel.GetComponentsInChildren<Button>(true))
+            if (!settingsSectionButtons.Contains(button)) StyleSettingsButton(button);
+        foreach (var button in settingsSectionButtons)
+        {
+            var label = button.GetComponentInChildren<Text>();
+            if (label != null) label.color = Color.clear;
+        }
+        var scroll = settingsPanel.GetComponentInChildren<ScrollRect>(true);
+        if (scroll != null)
+        {
+            var hostImage = scroll.GetComponent<Image>();
+            if (hostImage != null) hostImage.color = new Color(1f, 1f, 1f, 0.06f);
+        }
+        foreach (var toggle in settingsPanel.GetComponentsInChildren<Toggle>(true))
+            StyleSettingsToggle(toggle);
+        foreach (var image in settingsPanel.GetComponentsInChildren<Image>(true))
+        {
+            if (image.transform.childCount != 1 || image.transform.GetChild(0).name != "Val") continue;
+            image.sprite = LoadSettingsSprite("row_frame", new Rect(25f, 275f, 2120f, 180f));
+            image.type = Image.Type.Simple;
+            image.color = Color.white;
+            var rowLayout = image.GetComponent<LayoutElement>();
+            if (rowLayout != null) rowLayout.preferredHeight = rowLayout.minHeight = 56f;
+            var value = image.transform.GetChild(0).GetComponent<Text>();
+            if (value == null) continue;
+            value.alignment = TextAnchor.MiddleCenter;
+            value.fontSize = 20;
+            value.alignByGeometry = true;
+            var valueFitter = value.GetComponent<ContentSizeFitter>();
+            if (valueFitter != null) valueFitter.enabled = false;
+            value.horizontalOverflow = HorizontalWrapMode.Wrap;
+            value.verticalOverflow = VerticalWrapMode.Truncate;
+            value.rectTransform.anchorMin = new Vector2(0f, 0.5f);
+            value.rectTransform.anchorMax = new Vector2(1f, 0.5f);
+            value.rectTransform.pivot = new Vector2(0.5f, 0.5f);
+            value.rectTransform.offsetMin = new Vector2(44f, -16f);
+            value.rectTransform.offsetMax = new Vector2(-44f, 16f);
+        }
+    }
+
+    void MakeSettingsDivider(Transform parent)
+    {
+        var line = new GameObject("InkDivider", typeof(RectTransform), typeof(Image), typeof(LayoutElement));
+        line.transform.SetParent(parent, false);
+        line.GetComponent<LayoutElement>().preferredHeight = 1f;
+        line.GetComponent<Image>().color = new Color(0.61f, 0.38f, 0.19f, 0.75f);
+        line.GetComponent<Image>().raycastTarget = false;
     }
 
     Transform CreateSettingsSection(Transform parent, string name)
@@ -2723,7 +3091,7 @@ public class GoGame : MonoBehaviour
         var layout = section.AddComponent<LayoutElement>();
         layout.flexibleWidth = 1f;
         var group = section.AddComponent<VerticalLayoutGroup>();
-        group.spacing = 10f;
+        group.spacing = 12f;
         group.childAlignment = TextAnchor.UpperCenter;
         group.childControlWidth = true;
         group.childControlHeight = true;
@@ -2743,17 +3111,82 @@ public class GoGame : MonoBehaviour
         }
     }
 
+    void MakeSettingsOptionArt(Transform parent, string label)
+    {
+        string key;
+        Rect crop;
+        switch (label)
+        {
+            case "主音量":
+                key = "master";
+                crop = new Rect(260f, 100f, 1540f, 560f);
+                break;
+            case "音乐":
+                key = "music";
+                crop = new Rect(320f, 145f, 1120f, 590f);
+                break;
+            case "音效":
+                key = "sfx";
+                crop = new Rect(290f, 150f, 1200f, 600f);
+                break;
+            case "计时提醒":
+                key = "warning";
+                crop = new Rect(45f, 100f, 2090f, 550f);
+                break;
+            case "手数":
+                key = "move_numbers";
+                crop = new Rect(408f, 199f, 1000f, 472f);
+                break;
+            case "坐标":
+                key = "coordinates";
+                crop = new Rect(304f, 167f, 1180f, 572f);
+                break;
+            case "形势":
+                key = "territory";
+                crop = new Rect(464f, 195f, 852f, 440f);
+                break;
+            case "减少动效":
+                key = "reduce_motion";
+                crop = new Rect(104f, 186f, 1832f, 444f);
+                break;
+            default:
+                key = "mute";
+                crop = new Rect(410f, 185f, 960f, 495f);
+                break;
+        }
+
+        var holder = new GameObject("OptionArt_" + key, typeof(RectTransform), typeof(LayoutElement));
+        holder.transform.SetParent(parent, false);
+        var layout = holder.GetComponent<LayoutElement>();
+        layout.minWidth = layout.preferredWidth = 120f;
+        layout.flexibleWidth = 0f;
+        layout.minHeight = layout.preferredHeight = 32f;
+        var art = new GameObject("ArtLabel", typeof(RectTransform), typeof(Image));
+        art.transform.SetParent(holder.transform, false);
+        var rect = art.GetComponent<RectTransform>();
+        rect.anchorMin = rect.anchorMax = new Vector2(0f, 0.5f);
+        rect.pivot = new Vector2(0f, 0.5f);
+        rect.anchoredPosition = Vector2.zero;
+        rect.sizeDelta = new Vector2(label.Length * 30f, 32f);
+        var image = art.GetComponent<Image>();
+        image.sprite = LoadSettingsSprite("settings_option_" + key, crop);
+        image.preserveAspect = true;
+        image.raycastTarget = false;
+    }
+
     Slider MakeSettingsSlider(Transform parent, string label, float value,
         UnityEngine.Events.UnityAction<float> onChanged)
     {
-        var row = MakeRow(parent, 34f);
-        var text = MakeText(row, label, 14, Dim, TextAnchor.MiddleLeft);
-        var textLayout = text.gameObject.GetComponent<LayoutElement>();
-        if (textLayout == null) textLayout = text.gameObject.AddComponent<LayoutElement>();
-        textLayout.preferredWidth = 82f;
-        textLayout.minWidth = 82f;
-        textLayout.flexibleWidth = 0f;
-        return uiFactory.MakeSlider(row, "Slider_" + label, value, onChanged);
+        var row = MakeRow(parent, 60f);
+        // Keep the label at its stated width; only the slider consumes spare width.
+        // The factory's default force-expand split the row in half and squeezed
+        // every track into the far-right edge of the settings pane.
+        var rowGroup = row.GetComponent<HorizontalLayoutGroup>();
+        if (rowGroup != null) rowGroup.childForceExpandWidth = false;
+        MakeSettingsOptionArt(row, label);
+        var slider = uiFactory.MakeSlider(row, "Slider_" + label, value, onChanged);
+        StyleSettingsSlider(slider);
+        return slider;
     }
 
     void BuildSettingsButton()
@@ -2913,9 +3346,27 @@ public class GoGame : MonoBehaviour
         {
             bool selected = i == section;
             var image = settingsSectionButtons[i].GetComponent<Image>();
-            if (image != null) image.color = selected ? Accent : BtnBg;
+            if (image != null)
+            {
+                image.sprite = null;
+                image.color = selected ? new Color(0.82f, 0.66f, 0.40f, 0.17f) : Color.clear;
+            }
+            var accent = settingsSectionButtons[i].transform.Find("ArtAccent");
+            if (accent != null) accent.gameObject.SetActive(selected);
             var label = settingsSectionButtons[i].GetComponentInChildren<Text>();
-            if (label != null) label.color = selected ? new Color(0.11f, 0.09f, 0.07f) : Ink;
+            if (label != null) label.color = Color.clear;
+        }
+        if (settingsPanel != null)
+        {
+            var scroll = settingsPanel.GetComponentInChildren<ScrollRect>(true);
+            if (scroll != null)
+            {
+                scroll.StopMovement();
+                Canvas.ForceUpdateCanvases();
+                scroll.verticalNormalizedPosition = 1f;
+                if (scroll.content != null)
+                    scroll.content.anchoredPosition = new Vector2(0f, 0f);
+            }
         }
         if (section == 1 && settingsReduceMotionToggle != null)
             settingsReduceMotionToggle.Select();
@@ -3682,6 +4133,14 @@ public class GoGame : MonoBehaviour
         return Sprite.Create(texture, crop, new Vector2(0.5f, 0.5f), 100f, 0u, SpriteMeshType.FullRect, border);
     }
 
+    Sprite LoadRestoredMenuPlaque(string key, float bottom, float height)
+    {
+        var texture = Resources.Load<Texture2D>("MainMenu/" + key);
+        if (texture == null) return null;
+        return LoadRestoredMenuSprite(key, new Rect(0f, texture.height * bottom,
+            texture.width, texture.height * height));
+    }
+
     void StyleRestoredMenuButton(Button button, bool primary = false)
     {
         if (button == null) return;
@@ -3705,9 +4164,7 @@ public class GoGame : MonoBehaviour
             labelRect.anchorMin = labelRect.anchorMax = new Vector2(0.5f, 0.5f);
             labelRect.pivot = new Vector2(0.5f, 0.5f);
             labelRect.sizeDelta = new Vector2(330f, 44f);
-            // This OS calligraphic font has asymmetric glyph bearings. Align
-            // the painted glyphs with the plaque, not just the UI text box.
-            labelRect.anchoredPosition = new Vector2(0f, primary ? 13f : -11f);
+            labelRect.anchoredPosition = Vector2.zero;
         }
         var colors = button.colors;
         colors.normalColor = Color.white;
@@ -3716,18 +4173,14 @@ public class GoGame : MonoBehaviour
         button.colors = colors;
     }
 
-    void CreateRestoredMenuButton(string label, float topOffset,
+    void CreateRestoredMenuButton(Transform parent, string label,
         UnityEngine.Events.UnityAction onClick, bool primary = false,
         bool playClickSound = true)
     {
-        var button = MakeButton(mainPanel.transform, label, 68f, onClick, playClickSound);
+        var button = MakeButton(parent, label, 46f, onClick, playClickSound);
         var layout = button.GetComponent<LayoutElement>();
-        if (layout != null) layout.enabled = false;
-        var rect = button.GetComponent<RectTransform>();
-        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 1f);
-        rect.pivot = new Vector2(0.5f, 0.5f);
-        rect.sizeDelta = new Vector2(370f, 68f);
-        rect.anchoredPosition = new Vector2(0f, topOffset);
+        layout.minHeight = layout.preferredHeight = 46f;
+        layout.flexibleHeight = 0f;
         StyleRestoredMenuButton(button, primary);
     }
 
@@ -3785,7 +4238,13 @@ public class GoGame : MonoBehaviour
         FitPanelHeight(mainPanel, 680f);
         FitPanelHeight(aiSetupPanel, 860f);
         FitPanelHeight(historyPanel, 680f);
-        FitPanelHeight(settingsPanel, 620f);
+        if (settingsPanel != null)
+        {
+            var canvasRect = menuCanvas.GetComponent<RectTransform>().rect;
+            settingsPanel.GetComponent<RectTransform>().sizeDelta = new Vector2(
+                Mathf.Min(1120f, canvasRect.width - 80f),
+                Mathf.Min(680f, canvasRect.height - 80f));
+        }
 
         if (gameUiPanel != null)
         {
