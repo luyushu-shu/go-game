@@ -91,6 +91,7 @@ public sealed class GoUiVisualReview : MonoBehaviour
         timeOptions[mainPreset].onClick.Invoke();
         byoyomiOptions[byoyomiPreset].onClick.Invoke();
 
+        yield return ReviewHistory(game);
         Invoke(game, "ShowSettings");
         Invoke(game, "ShowSettingsSection", 3);
         yield return new WaitForSecondsRealtime(0.4f);
@@ -114,6 +115,76 @@ public sealed class GoUiVisualReview : MonoBehaviour
         File.WriteAllLines(Path.Combine(outputDirectory, "layout-check.txt"), observations);
         Debug.Log("UI VISUAL REVIEW OK");
         Application.Quit();
+    }
+
+    IEnumerator ReviewHistory(GoGame game)
+    {
+        Invoke(game, "ShowHistoryPanel");
+        yield return new WaitForSecondsRealtime(0.4f);
+        yield return new WaitForEndOfFrame();
+        Capture("history-page.png");
+        KifuDatabase.All();
+        var cacheField = typeof(KifuDatabase).GetField("cache", BindingFlags.Static | BindingFlags.NonPublic);
+        var original = cacheField.GetValue(null);
+        var samples = new KifuCatalog();
+        samples.items.Add(new KifuRecord { id = "review-only-1", title = "竹影听泉 · 夜弈", blackName = "清风", whiteName = "KataGo", blackRank = "初段", whiteRank = "", boardSize = 19, mode = "人机对弈", moveCount = 186, result = "黑方胜 2.5 目", playedAt = "2026-10-17 19:30", description = "仅供界面预览，不写入棋谱库。" });
+        samples.items.Add(new KifuRecord { id = "review-only-2", title = "松窗棋话 · 名局研习", blackName = "松间客", whiteName = "听雨", boardSize = 13, mode = "打谱", moveCount = 120, result = "白方中盘胜", playedAt = "2026-10-16 20:01" });
+        samples.items.Add(new KifuRecord { id = "review-only-3", title = "山月对弈 · 九路练习", blackName = "清风", whiteName = "本地引擎", boardSize = 9, mode = "人机对弈", moveCount = 58, result = "白方超时负", playedAt = "2026-10-15 18:20" });
+        try
+        {
+            cacheField.SetValue(null, samples);
+            Invoke(game, "RebuildHistoryList");
+            yield return null;
+            yield return new WaitForEndOfFrame();
+            Capture("history-sample-cards.png");
+            AssertHistoryCount(game, 3);
+            var search = (InputField)typeof(GoGame).GetField("historySearch", PrivateInstance).GetValue(game);
+            search.text = "竹影";
+            AssertHistoryCount(game, 1);
+            search.text = "不存在的关键词";
+            AssertHistoryCount(game, 0);
+            yield return null;
+            yield return new WaitForEndOfFrame();
+            Capture("history-empty-search.png");
+            search.text = "";
+            var options = (List<Button>)typeof(GoGame).GetField("historyBoardOptions", PrivateInstance).GetValue(game);
+            options[1].onClick.Invoke();
+            AssertHistoryCount(game, 1);
+            options[0].onClick.Invoke();
+            Invoke(game, "OpenHistoryDetail", samples.items[0]);
+            yield return null;
+            yield return new WaitForEndOfFrame();
+            Capture("history-detail.png");
+            Invoke(game, "AskDeleteKifu", samples.items[0]);
+            yield return null;
+            yield return new WaitForEndOfFrame();
+            Capture("history-delete-confirmation.png");
+            Invoke(game, "CancelDeleteKifu");
+            if (samples.items.Count != 3) throw new InvalidOperationException("Cancel modified history records.");
+            Invoke(game, "BeginEditKifu", samples.items[0]);
+            yield return null;
+            var form = (GameObject)typeof(GoGame).GetField("kifuForm", PrivateInstance).GetValue(game);
+            if (!form.activeInHierarchy || !form.GetComponent<Canvas>().isRootCanvas)
+                throw new InvalidOperationException("History editor is hidden by a disabled parent canvas.");
+            yield return new WaitForEndOfFrame();
+            Capture("history-edit.png");
+            Invoke(game, "KifuFormBack");
+            observations.Add("History: dedicated art, 3 sample cards, keyword search, empty state, board filter, details, delete cancellation, edit form; no database writes.");
+        }
+        finally
+        {
+            cacheField.SetValue(null, original);
+            Invoke(game, "RebuildHistoryList");
+        }
+    }
+
+    static void AssertHistoryCount(GoGame game, int expected)
+    {
+        var content = (Transform)typeof(GoGame).GetField("historyListContent", PrivateInstance).GetValue(game);
+        int count = 0;
+        foreach (Transform child in content)
+            if (child.gameObject.activeSelf && child.name == "KifuCard") count++;
+        if (count != expected) throw new InvalidOperationException("History filter count: " + count + ", expected " + expected);
     }
 
     static void Invoke(GoGame game, string method, params object[] args)

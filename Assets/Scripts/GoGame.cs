@@ -250,6 +250,7 @@ public class GoGame : MonoBehaviour
     InputField historySearch;
     Transform historyListContent;
     Text historyDetailText;
+    Text historyCountText;
     Text historyDeleteText;
     KifuRecord historyDetailRecord;
     string pendingDeleteKifuId;
@@ -2445,86 +2446,237 @@ public class GoGame : MonoBehaviour
 
         BuildAiSetupPanel();
 
-        historyPanel = BuildMenuPanel("HistoryPanel", 640f, 680f, pt =>
-        {
-            MakeText(pt, "历史棋谱", 32, Ink, TextAnchor.MiddleCenter);
-            MakeText(pt, "按名称、昵称、结果或描述搜索", 13, Dim, TextAnchor.MiddleCenter);
-            historySearch = MakeInputField(pt, "搜索棋谱", 36f, false);
-            historySearch.onValueChanged.AddListener(_ => RebuildHistoryList());
-
-            MakeText(pt, "棋盘尺寸", 12, Dim, TextAnchor.MiddleLeft);
-            historyBoardOptions = MakeOptions(pt, new[] { "全部", "9路", "13路", "19路" }, index =>
-            {
-                historyBoardSizeFilter = index == 0 ? 0 : (index == 1 ? 9 : index == 2 ? 13 : 19);
-                RebuildHistoryList();
-            });
-            MakeText(pt, "模式", 12, Dim, TextAnchor.MiddleLeft);
-            historyModeOptions = MakeOptions(pt, new[] { "全部", "打谱", "人机对弈" }, index =>
-            {
-                historyModeFilter = index == 0 ? "" : (index == 1 ? "打谱" : "人机对弈");
-                RebuildHistoryList();
-            });
-            MakeText(pt, "排序", 12, Dim, TextAnchor.MiddleLeft);
-            historySortOptions = MakeOptions(pt, new[] { "日期新→旧", "日期旧→新", "手数多→少", "结果" }, index =>
-            {
-                historySort = (KifuSort)Mathf.Clamp(index, 0, 3);
-                RebuildHistoryList();
-            });
-
-            var listHost = new GameObject("HistoryList");
-            listHost.transform.SetParent(pt, false);
-            var listLe = listHost.AddComponent<LayoutElement>();
-            listLe.flexibleHeight = 1f;
-            listLe.minHeight = 280f;
-            listLe.preferredHeight = 380f;
-            var listBg = listHost.AddComponent<Image>();
-            listBg.color = new Color(0.08f, 0.06f, 0.04f, 0.95f);
-            var scroll = listHost.AddComponent<ScrollRect>();
-            scroll.horizontal = false;
-            scroll.vertical = true;
-            scroll.movementType = ScrollRect.MovementType.Clamped;
-            scroll.scrollSensitivity = 28f;
-            listHost.AddComponent<RectMask2D>();
-
-            var viewport = new GameObject("Viewport");
-            viewport.transform.SetParent(listHost.transform, false);
-            var vrt = viewport.AddComponent<RectTransform>();
-            vrt.anchorMin = Vector2.zero;
-            vrt.anchorMax = Vector2.one;
-            vrt.offsetMin = new Vector2(8f, 8f);
-            vrt.offsetMax = new Vector2(-8f, -8f);
-            viewport.AddComponent<RectMask2D>();
-
-            var content = new GameObject("Content");
-            content.transform.SetParent(viewport.transform, false);
-            var crt = content.AddComponent<RectTransform>();
-            crt.anchorMin = new Vector2(0f, 1f);
-            crt.anchorMax = new Vector2(1f, 1f);
-            crt.pivot = new Vector2(0.5f, 1f);
-            crt.anchoredPosition = Vector2.zero;
-            crt.sizeDelta = Vector2.zero;
-            var cv = content.AddComponent<VerticalLayoutGroup>();
-            cv.spacing = 6f;
-            cv.childAlignment = TextAnchor.UpperCenter;
-            cv.childControlWidth = true;
-            cv.childControlHeight = true;
-            cv.childForceExpandWidth = true;
-            cv.childForceExpandHeight = false;
-            var fit = content.AddComponent<ContentSizeFitter>();
-            fit.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-            historyListContent = content.transform;
-            scroll.viewport = vrt;
-            scroll.content = crt;
-
-            MakeButton(pt, "返回", 40f, ShowMainMenu);
-        });
-        historyPanel.SetActive(false);
+        BuildHistoryPanel();
         BuildHistoryDetail();
         BuildSettingsPanel();
         BuildSettingsButton();
         BuildVolumeQuickControl();
         BuildVersionLabel();
         RegisterUiPages();
+    }
+
+    void BuildHistoryPanel()
+    {
+        historyPanel = new GameObject("HistoryPanel", typeof(RectTransform), typeof(Image));
+        historyPanel.transform.SetParent(menuCanvas.transform, false);
+        var panelRect = historyPanel.GetComponent<RectTransform>();
+        panelRect.anchorMin = panelRect.anchorMax = new Vector2(0.5f, 0.5f);
+        panelRect.sizeDelta = new Vector2(1120f, 960f);
+        historyPanel.GetComponent<Image>().sprite = LoadHistorySprite("paper");
+        var title = new GameObject("HistoryArtTitle", typeof(RectTransform), typeof(Image));
+        title.transform.SetParent(historyPanel.transform, false);
+        var titleRect = title.GetComponent<RectTransform>();
+        titleRect.anchorMin = titleRect.anchorMax = new Vector2(0.5f, 1f);
+        titleRect.anchoredPosition = new Vector2(0f, -62f);
+        titleRect.sizeDelta = new Vector2(260f, 70f);
+        title.GetComponent<Image>().sprite = LoadHistorySprite("title");
+        title.GetComponent<Image>().preserveAspect = true;
+        title.GetComponent<Image>().raycastTarget = false;
+
+        historySearch = MakeInputField(historyPanel.transform, "按名称、棋手、结果或备注搜索", 44f, false);
+        StyleHistoryInput(historySearch);
+        var searchRect = historySearch.GetComponent<RectTransform>();
+        searchRect.anchorMin = new Vector2(0f, 1f);
+        searchRect.anchorMax = Vector2.one;
+        searchRect.offsetMin = new Vector2(64f, -152f);
+        searchRect.offsetMax = new Vector2(-64f, -108f);
+        historySearch.onValueChanged.AddListener(_ => RebuildHistoryList());
+
+        var filters = new GameObject("HistoryFilters", typeof(RectTransform), typeof(VerticalLayoutGroup));
+        filters.transform.SetParent(historyPanel.transform, false);
+        var filtersRect = filters.GetComponent<RectTransform>();
+        filtersRect.anchorMin = new Vector2(0f, 1f);
+        filtersRect.anchorMax = Vector2.one;
+        filtersRect.offsetMin = new Vector2(64f, -316f);
+        filtersRect.offsetMax = new Vector2(-64f, -168f);
+        var filterLayout = filters.GetComponent<VerticalLayoutGroup>();
+        filterLayout.spacing = 8f;
+        filterLayout.childControlWidth = filterLayout.childControlHeight = true;
+        filterLayout.childForceExpandWidth = true;
+        filterLayout.childForceExpandHeight = false;
+        historyBoardOptions = MakeHistoryOptions(filters.transform, "棋盘尺寸",
+            new[] { "全部", "9路", "13路", "19路" }, index =>
+            {
+                historyBoardSizeFilter = index == 0 ? 0 : index == 1 ? 9 : index == 2 ? 13 : 19;
+                RebuildHistoryList();
+            });
+        historyModeOptions = MakeHistoryOptions(filters.transform, "模式",
+            new[] { "全部", "打谱", "人机对弈" }, index =>
+            {
+                historyModeFilter = index == 0 ? "" : index == 1 ? "打谱" : "人机对弈";
+                RebuildHistoryList();
+            });
+        historySortOptions = MakeHistoryOptions(filters.transform, "排序",
+            new[] { "日期新→旧", "日期旧→新", "手数多→少", "结果" }, index =>
+            {
+                historySort = (KifuSort)Mathf.Clamp(index, 0, 3);
+                RebuildHistoryList();
+            });
+        historyCountText = MakeText(historyPanel.transform, "", 16, Dim, TextAnchor.MiddleLeft);
+        StyleHistoryText(historyCountText, 16);
+        historyCountText.rectTransform.anchorMin = new Vector2(0f, 1f);
+        historyCountText.rectTransform.anchorMax = new Vector2(1f, 1f);
+        historyCountText.rectTransform.offsetMin = new Vector2(68f, -344f);
+        historyCountText.rectTransform.offsetMax = new Vector2(-68f, -322f);
+
+        historyListContent = BuildScrollBody(historyPanel.transform, "HistoryList");
+        var scroll = historyListContent.GetComponentInParent<ScrollRect>();
+        var listRect = scroll.GetComponent<RectTransform>();
+        listRect.anchorMin = Vector2.zero;
+        listRect.anchorMax = Vector2.one;
+        listRect.offsetMin = new Vector2(60f, 106f);
+        listRect.offsetMax = new Vector2(-60f, -352f);
+        scroll.GetComponent<Image>().color = Color.clear;
+        var listGroup = historyListContent.GetComponent<VerticalLayoutGroup>();
+        listGroup.padding = new RectOffset(8, 8, 8, 16);
+        listGroup.spacing = 14f;
+
+        var back = MakeButton(historyPanel.transform, "返回主界面", 48f, ShowMainMenu);
+        StyleHistoryButton(back, true);
+        var backRect = back.GetComponent<RectTransform>();
+        backRect.anchorMin = Vector2.zero;
+        backRect.anchorMax = new Vector2(1f, 0f);
+        backRect.offsetMin = new Vector2(64f, 40f);
+        backRect.offsetMax = new Vector2(-64f, 88f);
+        back.GetComponentInChildren<Text>().gameObject.SetActive(false);
+        var backArt = new GameObject("ReturnArtLabel", typeof(RectTransform), typeof(Image));
+        backArt.transform.SetParent(back.transform, false);
+        var backArtRect = backArt.GetComponent<RectTransform>();
+        backArtRect.anchorMin = backArtRect.anchorMax = new Vector2(0.5f, 0.5f);
+        backArtRect.anchoredPosition = Vector2.zero;
+        backArtRect.sizeDelta = new Vector2(190f, 38f);
+        backArt.GetComponent<Image>().sprite = LoadSettingsSprite("settings_label_back", new Rect(90f, 70f, 1990f, 590f));
+        backArt.GetComponent<Image>().preserveAspect = true;
+        backArt.GetComponent<Image>().raycastTarget = false;
+        historyPanel.SetActive(false);
+    }
+
+    Sprite LoadHistorySprite(string key)
+    {
+        string cacheKey = "History/" + key;
+        if (settingsArt.TryGetValue(cacheKey, out var cached)) return cached;
+        var texture = Resources.Load<Texture2D>("History/history_" + key);
+        if (texture == null) return null;
+        Rect crop;
+        switch (key)
+        {
+            case "paper": crop = new Rect(8f, 18f, 1236f, 1220f); break;
+            case "title": crop = new Rect(224f, 132f, 1716f, 440f); break;
+            case "option": crop = new Rect(36f, 208f, 2100f, 312f); break;
+            case "selected": crop = new Rect(4f, 176f, 2164f, 392f); break;
+            case "card": crop = new Rect(16f, 164f, 2140f, 424f); break;
+            default: crop = new Rect(68f, 200f, 2032f, 356f); break;
+        }
+        var sprite = Sprite.Create(texture, crop, new Vector2(0.5f, 0.5f));
+        settingsArt[cacheKey] = sprite;
+        return sprite;
+    }
+
+    void StyleHistoryText(Text text, int size, TextAnchor alignment = TextAnchor.MiddleLeft)
+    {
+        text.font = restoredMenuFont != null ? restoredMenuFont : font;
+        text.fontSize = size;
+        text.color = new Color(0.26f, 0.16f, 0.10f);
+        text.alignment = alignment;
+        text.alignByGeometry = true;
+        text.supportRichText = false;
+        var fitter = text.GetComponent<ContentSizeFitter>();
+        if (fitter != null) fitter.enabled = false;
+    }
+
+    void StyleHistoryButton(Button button, bool selected = false, bool danger = false)
+    {
+        var layout = button.GetComponent<LayoutElement>();
+        if (layout != null) layout.flexibleHeight = 0f;
+        var image = button.GetComponent<Image>();
+        image.sprite = LoadHistorySprite(danger ? "delete" : selected ? "selected" : "option");
+        image.type = Image.Type.Simple;
+        image.color = Color.white;
+        var colors = button.colors;
+        colors.normalColor = colors.selectedColor = Color.white;
+        colors.highlightedColor = new Color(1f, 0.96f, 0.84f);
+        colors.pressedColor = new Color(0.85f, 0.75f, 0.59f);
+        button.colors = colors;
+        var text = button.GetComponentInChildren<Text>();
+        if (text == null) return;
+        StyleHistoryText(text, 20, TextAnchor.MiddleCenter);
+        text.color = selected || danger ? new Color(0.98f, 0.87f, 0.68f) : new Color(0.26f, 0.16f, 0.10f);
+        text.rectTransform.anchorMin = Vector2.zero;
+        text.rectTransform.anchorMax = Vector2.one;
+        text.rectTransform.offsetMin = new Vector2(14f, 4f);
+        text.rectTransform.offsetMax = new Vector2(-14f, -4f);
+    }
+
+    void StyleHistoryInput(InputField input)
+    {
+        StyleAiSetupInput(input);
+        input.GetComponent<Image>().sprite = LoadHistorySprite("option");
+    }
+
+    List<Button> MakeHistoryOptions(Transform parent, string caption, string[] labels,
+        UnityEngine.Events.UnityAction<int> onPick)
+    {
+        var row = MakeRow(parent, 44f);
+        row.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+        var label = MakeText(row, caption, 20, Ink, TextAnchor.MiddleLeft);
+        StyleHistoryText(label, 20);
+        var labelLayout = label.gameObject.AddComponent<LayoutElement>();
+        labelLayout.minWidth = labelLayout.preferredWidth = 104f;
+        labelLayout.flexibleWidth = 0f;
+        var options = MakeOptions(row, labels, onPick);
+        var optionsLayout = options[0].transform.parent.GetComponent<LayoutElement>();
+        optionsLayout.minHeight = optionsLayout.preferredHeight = 44f;
+        optionsLayout.flexibleWidth = 1f;
+        foreach (var option in options) StyleHistoryButton(option);
+        return options;
+    }
+
+    Text MakeHistoryCardLine(Transform parent, string value, int size, float height)
+    {
+        var text = MakeText(parent, value, size, Ink, TextAnchor.MiddleLeft);
+        StyleHistoryText(text, size);
+        text.horizontalOverflow = HorizontalWrapMode.Wrap;
+        text.verticalOverflow = VerticalWrapMode.Truncate;
+        var layout = text.gameObject.AddComponent<LayoutElement>();
+        layout.minHeight = layout.preferredHeight = height;
+        return text;
+    }
+
+    static string ShortHistoryText(string value, int limit)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        var characters = System.Globalization.StringInfo.ParseCombiningCharacters(value);
+        return characters.Length <= limit ? value : value.Substring(0, characters[limit]) + "…";
+    }
+
+    void CreateHistoryCard(Transform parent, KifuRecord record)
+    {
+        string id = record.id;
+        var card = new GameObject("KifuCard", typeof(RectTransform), typeof(LayoutElement), typeof(Image));
+        card.transform.SetParent(parent, false);
+        card.GetComponent<LayoutElement>().minHeight = card.GetComponent<LayoutElement>().preferredHeight = 204f;
+        card.GetComponent<Image>().sprite = LoadHistorySprite("card");
+        var open = card.AddComponent<Button>();
+        open.transition = Selectable.Transition.None;
+        open.onClick.AddListener(() => OpenHistoryDetail(FindKifu(id)));
+        var group = card.AddComponent<VerticalLayoutGroup>();
+        group.padding = new RectOffset(32, 32, 14, 14);
+        group.spacing = 6f;
+        group.childControlWidth = group.childControlHeight = true;
+        group.childForceExpandWidth = true;
+        group.childForceExpandHeight = false;
+        MakeHistoryCardLine(card.transform, ShortHistoryText(string.IsNullOrEmpty(record.title) ? "未命名对局" : record.title, 34), 24, 30f);
+        MakeHistoryCardLine(card.transform,
+            $"黑方：{ShortHistoryText(record.blackName, 18)}（{ShortHistoryText(record.blackRank, 6)}）    白方：{ShortHistoryText(record.whiteName, 18)}（{ShortHistoryText(record.whiteRank, 6)}）", 18, 26f);
+        MakeHistoryCardLine(card.transform,
+            $"{record.boardSize}路  ·  {record.moveCount}手  ·  {ShortHistoryText(record.playedAt, 24)}  ·  {record.mode}", 18, 24f);
+        MakeHistoryCardLine(card.transform, "结果：" + ShortHistoryText(string.IsNullOrEmpty(record.result) ? "未终局" : record.result, 40), 20, 26f);
+        var actions = MakeRow(card.transform, 40f);
+        actions.GetComponent<HorizontalLayoutGroup>().spacing = 10f;
+        StyleHistoryButton(MakeButton(actions, "打开复盘", 40f, () => OpenKifuReviewById(id)), true);
+        StyleHistoryButton(MakeButton(actions, "导出 SGF", 40f, () => ExportKifuSgfById(id)));
+        StyleHistoryButton(MakeButton(actions, "编辑信息", 40f, () => BeginEditKifuById(id)));
+        StyleHistoryButton(MakeButton(actions, "删除", 40f, () => AskDeleteKifuById(id)), false, true);
     }
 
     void BuildAiSetupPanel()
@@ -3638,13 +3790,14 @@ public class GoGame : MonoBehaviour
         var card = new GameObject("Card");
         card.transform.SetParent(historyDetail.transform, false);
         var cimg = card.AddComponent<Image>();
-        cimg.color = new Color(0.16f, 0.13f, 0.09f, 1f);
+        cimg.sprite = LoadHistorySprite("paper");
+        cimg.color = Color.white;
         var crt = card.GetComponent<RectTransform>();
         crt.anchorMin = crt.anchorMax = new Vector2(0.5f, 0.5f);
-        crt.sizeDelta = new Vector2(520f, 480f);
+        crt.sizeDelta = new Vector2(760f, 640f);
 
         var vlg = card.AddComponent<VerticalLayoutGroup>();
-        vlg.padding = new RectOffset(28, 28, 24, 20);
+        vlg.padding = new RectOffset(64, 64, 88, 52);
         vlg.spacing = 12f;
         vlg.childAlignment = TextAnchor.UpperCenter;
         vlg.childControlWidth = true;
@@ -3653,6 +3806,8 @@ public class GoGame : MonoBehaviour
         vlg.childForceExpandHeight = false;
 
         historyDetailText = MakeText(card.transform, "", 16, Ink, TextAnchor.UpperLeft);
+        StyleHistoryText(historyDetailText, 20, TextAnchor.UpperLeft);
+        historyDetailText.horizontalOverflow = HorizontalWrapMode.Wrap;
         var dle = historyDetailText.gameObject.AddComponent<LayoutElement>();
         dle.flexibleHeight = 1f;
         dle.minHeight = 180f;
@@ -3661,11 +3816,16 @@ public class GoGame : MonoBehaviour
         MakeButton(card.transform, "编辑信息", 38f, () => BeginEditKifu(historyDetailRecord));
         MakeButton(card.transform, "删除", 38f, () => AskDeleteKifu(historyDetailRecord));
         MakeButton(card.transform, "返回", 40f, CloseHistoryDetail);
+        foreach (var button in card.GetComponentsInChildren<Button>())
+            StyleHistoryButton(button, false, button.GetComponentInChildren<Text>().text == "删除");
         historyDetail.SetActive(false);
 
         historyDeleteDialog = BuildDialogRoot(menuCanvas.transform, "HistoryDeleteDialog", out Transform deleteCard);
+        deleteCard.GetComponent<Image>().sprite = LoadHistorySprite("paper");
+        deleteCard.GetComponent<Image>().color = Color.white;
+        deleteCard.GetComponent<RectTransform>().sizeDelta = new Vector2(660f, 320f);
         var deleteLayout = deleteCard.gameObject.AddComponent<VerticalLayoutGroup>();
-        deleteLayout.padding = new RectOffset(28, 28, 24, 22);
+        deleteLayout.padding = new RectOffset(48, 48, 40, 36);
         deleteLayout.spacing = 12f;
         deleteLayout.childAlignment = TextAnchor.MiddleCenter;
         deleteLayout.childControlWidth = true;
@@ -3674,17 +3834,77 @@ public class GoGame : MonoBehaviour
         deleteLayout.childForceExpandHeight = false;
         MakeText(deleteCard, "删除棋谱", 26, Ink, TextAnchor.MiddleCenter);
         historyDeleteText = MakeText(deleteCard, "", 16, Ink, TextAnchor.MiddleCenter);
-        var deleteButtons = MakeRow(deleteCard, 42f);
-        MakeButton(deleteButtons, "确认删除", 42f, ConfirmDeleteKifu);
-        MakeButton(deleteButtons, "取消", 42f, CancelDeleteKifu);
+        var deleteButtons = MakeRow(deleteCard, 36f);
+        var deleteRowLayout = deleteButtons.GetComponent<LayoutElement>();
+        deleteRowLayout.minHeight = deleteRowLayout.preferredHeight = 36f;
+        deleteRowLayout.flexibleHeight = 0f;
+        var deleteRow = deleteButtons.GetComponent<HorizontalLayoutGroup>();
+        deleteRow.childForceExpandWidth = deleteRow.childForceExpandHeight = false;
+        deleteRow.childAlignment = TextAnchor.MiddleCenter;
+        deleteRow.spacing = 20f;
+        MakeButton(deleteButtons, "确认删除", 36f, ConfirmDeleteKifu);
+        MakeButton(deleteButtons, "取消", 36f, CancelDeleteKifu);
+        foreach (var text in deleteCard.GetComponentsInChildren<Text>()) StyleHistoryText(text, 20, TextAnchor.MiddleCenter);
+        foreach (var button in deleteCard.GetComponentsInChildren<Button>())
+        {
+            StyleHistoryButton(button, false, button.GetComponentInChildren<Text>().text == "确认删除");
+            var buttonLayout = button.GetComponent<LayoutElement>();
+            buttonLayout.minWidth = buttonLayout.preferredWidth = 160f;
+            buttonLayout.flexibleWidth = 0f;
+            buttonLayout.minHeight = buttonLayout.preferredHeight = 36f;
+            button.GetComponentInChildren<Text>().fontSize = 18;
+        }
         historyDeleteDialog.SetActive(false);
+        // A separate overlay stays visible when either the game or menu
+        // canvas is disabled. The form is shared by saving and history editing.
+        kifuForm.transform.SetParent(null, false);
+        var formCanvas = kifuForm.AddComponent<Canvas>();
+        formCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        formCanvas.overrideSorting = true;
+        formCanvas.sortingOrder = menuCanvas.GetComponent<Canvas>().sortingOrder + 10;
+        ConfigureCanvasScaler(kifuForm.AddComponent<CanvasScaler>());
+        kifuForm.AddComponent<GraphicRaycaster>();
+        var editCard = kifuForm.transform.Find("Card");
+        editCard.GetComponent<Image>().sprite = LoadHistorySprite("paper");
+        editCard.GetComponent<Image>().color = Color.white;
+        editCard.GetComponent<RectTransform>().sizeDelta = new Vector2(760f, 900f);
+        editCard.GetComponent<VerticalLayoutGroup>().padding = new RectOffset(64, 64, 80, 50);
+        foreach (var label in editCard.GetComponentsInChildren<Text>(true))
+            StyleHistoryText(label, 18, label.alignment);
+        foreach (var input in editCard.GetComponentsInChildren<InputField>(true))
+        {
+            StyleHistoryInput(input);
+            if (input.lineType != InputField.LineType.SingleLine)
+            {
+                input.textComponent.alignment = TextAnchor.UpperLeft;
+                input.textComponent.rectTransform.offsetMin = new Vector2(24f, 12f);
+                input.textComponent.rectTransform.offsetMax = new Vector2(-24f, -12f);
+            }
+        }
+        foreach (var button in editCard.GetComponentsInChildren<Button>(true)) StyleHistoryButton(button);
+        foreach (var row in editCard.GetComponentsInChildren<HorizontalLayoutGroup>(true))
+        {
+            row.childForceExpandHeight = false;
+            var rowLayout = row.GetComponent<LayoutElement>();
+            if (rowLayout != null) { rowLayout.minHeight = rowLayout.preferredHeight = 44f; rowLayout.flexibleHeight = 0f; }
+        }
+        foreach (var value in new[] { kifuTimeText, kifuResultText })
+        {
+            StyleHistoryText(value, 18, TextAnchor.MiddleCenter);
+            var frame = value.transform.parent.GetComponent<Image>();
+            if (frame != null) { frame.sprite = LoadHistorySprite("option"); frame.color = Color.white; }
+        }
     }
 
     void RebuildHistoryList()
     {
         if (historyListContent == null) return;
         for (int i = historyListContent.childCount - 1; i >= 0; i--)
-            UnityEngine.Object.Destroy(historyListContent.GetChild(i).gameObject);
+        {
+            var previous = historyListContent.GetChild(i).gameObject;
+            previous.SetActive(false);
+            UnityEngine.Object.Destroy(previous);
+        }
 
         var rows = KifuDatabase.Query(new KifuQuery
         {
@@ -3693,41 +3913,27 @@ public class GoGame : MonoBehaviour
             Mode = historyModeFilter,
             Sort = historySort
         });
+        if (historyCountText != null) historyCountText.text = $"共 {rows.Count} 局";
         if (rows.Count == 0)
         {
-            MakeText(historyListContent, "暂无棋谱", 16, Dim, TextAnchor.MiddleCenter);
+            var empty = MakeHistoryCardLine(historyListContent,
+                string.IsNullOrEmpty(historySearch.text) && historyBoardSizeFilter == 0 && string.IsNullOrEmpty(historyModeFilter)
+                    ? "暂无棋谱\n完成对局并保存后，棋谱将收录于此。"
+                    : "暂无匹配棋谱\n试试其他关键词或筛选条件。", 22, 144f);
+            empty.name = "HistoryEmptyState";
+            empty.alignment = TextAnchor.MiddleCenter;
+            var scroll = historyListContent.GetComponentInParent<ScrollRect>();
+            if (scroll != null) scroll.verticalNormalizedPosition = 1f;
             return;
         }
         foreach (var rec in rows)
+            CreateHistoryCard(historyListContent, rec);
+        var listScroll = historyListContent.GetComponentInParent<ScrollRect>();
+        if (listScroll != null)
         {
-            string id = rec.id;
-            var card = new GameObject("KifuCard");
-            card.transform.SetParent(historyListContent, false);
-            var cardLe = card.AddComponent<LayoutElement>();
-            cardLe.minHeight = 126f;
-            cardLe.preferredHeight = 126f;
-            var cardImage = card.AddComponent<Image>();
-            cardImage.color = new Color(0.15f, 0.12f, 0.09f, 1f);
-            var cardLayout = card.AddComponent<VerticalLayoutGroup>();
-            cardLayout.padding = new RectOffset(12, 12, 8, 8);
-            cardLayout.spacing = 4f;
-            cardLayout.childControlWidth = true;
-            cardLayout.childControlHeight = true;
-            cardLayout.childForceExpandWidth = true;
-            cardLayout.childForceExpandHeight = false;
-
-            var info = MakeText(card.transform, HistoryCardText(rec), 13, Ink, TextAnchor.UpperLeft);
-            info.supportRichText = false;
-            var infoLe = info.gameObject.AddComponent<LayoutElement>();
-            infoLe.flexibleHeight = 1f;
-            infoLe.minHeight = 64f;
-            var actions = MakeRow(card.transform, 34f);
-            MakeButton(actions, "打开复盘", 34f, () => OpenKifuReviewById(id));
-            MakeButton(actions, "导出 SGF", 34f, () => ExportKifuSgfById(id));
-            MakeButton(actions, "编辑信息", 34f, () => BeginEditKifuById(id));
-            var deleteButton = MakeButton(actions, "删除", 34f, () => AskDeleteKifuById(id));
-            var deleteImage = deleteButton.GetComponent<Image>();
-            if (deleteImage != null) deleteImage.color = new Color(0.38f, 0.18f, 0.14f, 1f);
+            listScroll.StopMovement();
+            Canvas.ForceUpdateCanvases();
+            listScroll.verticalNormalizedPosition = 1f;
         }
     }
 
@@ -4401,7 +4607,13 @@ public class GoGame : MonoBehaviour
                 Mathf.Min(800f, canvasRect.width - 80f),
                 Mathf.Min(960f, canvasRect.height - 80f));
         }
-        FitPanelHeight(historyPanel, 680f);
+        if (historyPanel != null)
+        {
+            var canvasRect = menuCanvas.GetComponent<RectTransform>().rect;
+            historyPanel.GetComponent<RectTransform>().sizeDelta = new Vector2(
+                Mathf.Min(1120f, canvasRect.width - 80f),
+                Mathf.Min(960f, canvasRect.height - 80f));
+        }
         if (settingsPanel != null)
         {
             var canvasRect = menuCanvas.GetComponent<RectTransform>().rect;
@@ -4623,6 +4835,11 @@ public class GoGame : MonoBehaviour
             if (aiSetupPanel != null && btns[i].transform.IsChildOf(aiSetupPanel.transform))
             {
                 StyleAiSetupButton(btns[i], on);
+                continue;
+            }
+            if (historyPanel != null && btns[i].transform.IsChildOf(historyPanel.transform))
+            {
+                StyleHistoryButton(btns[i], on);
                 continue;
             }
             btns[i].GetComponent<Image>().color = on ? Accent : BtnBg;
