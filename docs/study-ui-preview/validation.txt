@@ -1,0 +1,1 @@
+PASS: asset loading, layout at 1600x900 / 1440x900 / 1280x720, judgment data, coordinate and move-number toggles, undo, draw, menu restoration.

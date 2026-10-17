@@ -51,7 +51,7 @@ public class MoveBranchesCatalog
 
 // 运行自举：场景无需任何手工布置，按 Play 即进入主界面。
 // 棋盘木纹、网格、星位、棋子、标记全部程序化生成。
-public class GoGame : MonoBehaviour
+public partial class GoGame : MonoBehaviour
 {
     public static int ResolveKifuSaveHandicap(bool restoredSession, int restoredHandicap, bool studyMode, int configuredHandicap)
     {
@@ -491,7 +491,8 @@ public class GoGame : MonoBehaviour
             || (kifuForm != null && kifuForm.activeSelf)
             || (resignDialog != null && resignDialog.activeSelf)
             || (scoreDialog != null && scoreDialog.activeSelf)
-            || (timeoutDialog != null && timeoutDialog.activeSelf);
+            || (timeoutDialog != null && timeoutDialog.activeSelf)
+            || (studyArtDialog != null && studyArtDialog.activeSelf);
         if (blocked) clockController.Pause();
         else clockController.Resume();
         bool blackActive = clockController.IsRunning && clockController.ActiveColor == GoRules.BLACK;
@@ -772,6 +773,7 @@ public class GoGame : MonoBehaviour
         if (cam == null || rules == null) return;
         if (Screen.width != lastResponsiveWidth || Screen.height != lastResponsiveHeight)
             ApplyResponsiveLayout();
+        UpdateStudyArtLayout();
         UpdateClockPauseState();
         clockController?.Tick(Time.unscaledDeltaTime);
         if (inMenu)
@@ -1314,6 +1316,7 @@ public class GoGame : MonoBehaviour
         BuildScorePopup(canvas.transform);
         BuildKifuForm(canvas.transform);
         BuildStudyBoardUi(canvas.transform);
+        BuildStudyArtUi(canvas.transform, pgo);
     }
 
     void BuildClockUi(Transform parent)
@@ -2025,6 +2028,7 @@ public class GoGame : MonoBehaviour
 
     void HideScorePopup()
     {
+        HideStudyArtDialog();
         if (scorePopup != null) scorePopup.SetActive(false);
         if (kifuForm != null) kifuForm.SetActive(false);
         if (resignDialog != null) resignDialog.SetActive(false);
@@ -2294,7 +2298,7 @@ public class GoGame : MonoBehaviour
         if (boardSkin != null)
         {
             boardSkin.SetToolbarState(showMoveNums, showCoords, showTerritory);
-            boardSkin.SetToolbarVisible(BoardOverlayOn);
+            boardSkin.SetToolbarVisible(BoardOverlayOn && !StudyArtActive);
         }
     }
 
@@ -5165,6 +5169,7 @@ public class GoGame : MonoBehaviour
         RefreshStudyVisuals();
         UpdateBoardMarksVisuals();
         SyncCommentModule();
+        RefreshStudyArtUi();
 
         if (reviewingKifu)
         {

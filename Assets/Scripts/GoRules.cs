@@ -235,6 +235,13 @@ public class GoRules
         Phase = GoPhase.Over;
     }
 
+    public void AgreeDraw()
+    {
+        if (Result != null) return;
+        Result = "双方和棋";
+        Phase = GoPhase.Over;
+    }
+
     public void FinishByTimeout(int loserColor)
     {
         if (Result != null) return;
