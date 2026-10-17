@@ -2443,84 +2443,7 @@ public class GoGame : MonoBehaviour
         CreateRestoredMenuButton(menuActions.transform, "历史棋谱", ShowHistoryPanel);
         CreateRestoredMenuButton(menuActions.transform, "退出", QuitGame);
 
-        aiSetupPanel = BuildMenuPanel("AiSetupPage", 620f, 860f, pt =>
-        {
-            MakeText(pt, "人机对弈", 36, Ink, TextAnchor.MiddleCenter);
-            MakeText(pt, "开局前选定棋盘与规则，进入对局后不可更改", 13, Dim, TextAnchor.MiddleCenter);
-            var content = BuildScrollBody(pt, "AiSetupScroll");
-
-            MakeText(content, "棋盘尺寸", 14, Dim, TextAnchor.MiddleCenter);
-            optSize = MakeOptions(content, new[] { "9路", "13路", "19路" }, i =>
-            {
-                sizeChoice = i;
-                SyncAiSetup();
-            });
-
-            MakeText(content, "执棋", 14, Dim, TextAnchor.MiddleCenter);
-            optColor = MakeOptions(content, new[] { "黑棋", "白棋", "猜先" }, i =>
-            {
-                colorChoice = i;
-                SyncAiSetup();
-            });
-
-            MakeText(content, "贴目", 14, Dim, TextAnchor.MiddleCenter);
-            komiValText = MakeStepper(content,
-                () => komi = Mathf.Max(0f, komi - 0.5f),
-                () => komi = Mathf.Min(15f, komi + 0.5f));
-
-            MakeText(content, "让子（黑方预先布子，白方先下）", 14, Dim, TextAnchor.MiddleCenter);
-            handiValText = MakeStepper(content,
-                () => handicap = Mathf.Max(0, handicap - 1),
-                () => handicap = Mathf.Min(9, handicap + 1));
-
-            MakeText(content, "对局时间", 14, Dim, TextAnchor.MiddleCenter);
-            optMainTime = MakeOptions(content,
-                new[] { "无限制", "5分钟", "1小时", "2小时", "自定义" },
-                SetMainTimePreset);
-            customMainTimeRoot = BuildCustomMainTime(content);
-
-            MakeText(content, "读秒", 14, Dim, TextAnchor.MiddleCenter);
-            optByoyomi = MakeOptions(content,
-                new[] { "无", "3×30秒", "5×30秒", "5×60秒", "自定义" },
-                SetByoyomiPreset);
-            customByoyomiRoot = BuildCustomByoyomi(content);
-
-            MakeText(content, "电脑对手", 14, Dim, TextAnchor.MiddleCenter);
-            optOpponent = MakeOptions(content, new[] { "本地引擎", "KataGo", "大模型" }, i =>
-            {
-                opponentChoice = i;
-                SyncAiSetup();
-            });
-
-            MakeText(content, "大模型密钥（xAI / OpenAI 兼容，仅存本机）", 13, Dim, TextAnchor.MiddleCenter);
-            llmKeyInput = MakeInputField(content, "粘贴 API Key", 36f, false);
-            llmKeyInput.contentType = InputField.ContentType.Password;
-            llmKeyInput.onEndEdit.AddListener(v => GoLlmAi.ApiKey = v);
-
-            var footer = new GameObject("AiSetupFooter");
-            footer.transform.SetParent(pt, false);
-            var footerLayout = footer.AddComponent<LayoutElement>();
-            footerLayout.minHeight = 94f;
-            footerLayout.preferredHeight = 94f;
-            footerLayout.flexibleHeight = 0f;
-            var footerGroup = footer.AddComponent<VerticalLayoutGroup>();
-            footerGroup.spacing = 4f;
-            footerGroup.childAlignment = TextAnchor.MiddleCenter;
-            footerGroup.childControlWidth = true;
-            footerGroup.childControlHeight = true;
-            footerGroup.childForceExpandWidth = true;
-            footerGroup.childForceExpandHeight = false;
-            timeValidationText = MakeText(footer.transform, "", 12, uiTheme.Cinnabar, TextAnchor.MiddleLeft);
-            byoyomiValidationText = MakeText(footer.transform, "", 12, uiTheme.Cinnabar, TextAnchor.MiddleLeft);
-            var actions = MakeRow(footer.transform, 46f);
-            var start = MakeButton(actions, "开始对局", 46f, StartAiGame, false);
-            start.GetComponent<Image>().color = Accent;
-            StyleAccentLabel(start);
-            var back = MakeButton(actions, "返回", 40f, ShowMainMenu);
-            SetFixedWidth(start, 220f);
-            SetFixedWidth(back, 160f);
-        });
-        aiSetupPanel.SetActive(false);
+        BuildAiSetupPanel();
 
         historyPanel = BuildMenuPanel("HistoryPanel", 640f, 680f, pt =>
         {
@@ -2602,6 +2525,241 @@ public class GoGame : MonoBehaviour
         BuildVolumeQuickControl();
         BuildVersionLabel();
         RegisterUiPages();
+    }
+
+    void BuildAiSetupPanel()
+    {
+        aiSetupPanel = new GameObject("AiSetupPage", typeof(RectTransform), typeof(Image));
+        aiSetupPanel.transform.SetParent(menuCanvas.transform, false);
+        var panelRect = aiSetupPanel.GetComponent<RectTransform>();
+        panelRect.anchorMin = panelRect.anchorMax = new Vector2(0.5f, 0.5f);
+        panelRect.sizeDelta = new Vector2(800f, 960f);
+        aiSetupPanel.GetComponent<Image>().sprite = LoadAiSetupSprite("paper");
+
+        var title = new GameObject("AiSetupArtTitle", typeof(RectTransform), typeof(Image));
+        title.transform.SetParent(aiSetupPanel.transform, false);
+        var titleRect = title.GetComponent<RectTransform>();
+        titleRect.anchorMin = titleRect.anchorMax = new Vector2(0.5f, 1f);
+        titleRect.anchoredPosition = new Vector2(0f, -64f);
+        titleRect.sizeDelta = new Vector2(256f, 70f);
+        title.GetComponent<Image>().sprite = LoadAiSetupSprite("title");
+        title.GetComponent<Image>().preserveAspect = true;
+        title.GetComponent<Image>().raycastTarget = false;
+        var subtitle = MakeText(aiSetupPanel.transform, "开局前选定棋盘与规则，进入对局后不可更改", 18,
+            new Color(0.43f, 0.31f, 0.20f), TextAnchor.MiddleCenter);
+        StyleAiSetupText(subtitle, 18);
+        subtitle.rectTransform.anchorMin = subtitle.rectTransform.anchorMax = new Vector2(0.5f, 1f);
+        subtitle.rectTransform.anchoredPosition = new Vector2(0f, -112f);
+        subtitle.rectTransform.sizeDelta = new Vector2(640f, 24f);
+
+        var content = BuildScrollBody(aiSetupPanel.transform, "AiSetupScroll");
+        var scroll = content.GetComponentInParent<ScrollRect>();
+        var scrollRect = scroll.GetComponent<RectTransform>();
+        scrollRect.anchorMin = Vector2.zero;
+        scrollRect.anchorMax = Vector2.one;
+        scrollRect.offsetMin = new Vector2(56f, 156f);
+        scrollRect.offsetMax = new Vector2(-56f, -140f);
+        scroll.GetComponent<Image>().color = Color.clear;
+        scroll.viewport.offsetMin = new Vector2(4f, 4f);
+        scroll.viewport.offsetMax = new Vector2(-4f, -4f);
+        var contentGroup = content.GetComponent<VerticalLayoutGroup>();
+        contentGroup.padding = new RectOffset(4, 4, 4, 12);
+        contentGroup.spacing = 6f;
+
+        optSize = MakeAiSetupOptions(MakeAiSetupField(content, "棋盘尺寸"),
+            new[] { "9路", "13路", "19路" }, i => { sizeChoice = i; SyncAiSetup(); });
+        optColor = MakeAiSetupOptions(MakeAiSetupField(content, "执棋"),
+            new[] { "黑棋", "白棋", "猜先" }, i => { colorChoice = i; SyncAiSetup(); });
+        komiValText = MakeAiSetupStepper(MakeAiSetupField(content, "贴目"),
+            () => komi = Mathf.Max(0f, komi - 0.5f),
+            () => komi = Mathf.Min(15f, komi + 0.5f));
+        handiValText = MakeAiSetupStepper(MakeAiSetupField(content, "让子（黑方预先布子，白方先下）"),
+            () => handicap = Mathf.Max(0, handicap - 1),
+            () => handicap = Mathf.Min(9, handicap + 1));
+        var mainTime = MakeAiSetupField(content, "对局时间");
+        optMainTime = MakeAiSetupOptions(mainTime,
+            new[] { "无限制", "5分钟", "1小时", "2小时", "自定义" }, SetMainTimePreset);
+        customMainTimeRoot = BuildCustomMainTime(mainTime);
+        StyleAiSetupCustomTime(customMainTimeRoot);
+        var byoyomi = MakeAiSetupField(content, "读秒");
+        optByoyomi = MakeAiSetupOptions(byoyomi,
+            new[] { "无", "3×30秒", "5×30秒", "5×60秒", "自定义" }, SetByoyomiPreset);
+        customByoyomiRoot = BuildCustomByoyomi(byoyomi);
+        StyleAiSetupCustomTime(customByoyomiRoot);
+        optOpponent = MakeAiSetupOptions(MakeAiSetupField(content, "电脑对手"),
+            new[] { "本地引擎", "KataGo", "大模型" }, i => { opponentChoice = i; SyncAiSetup(); });
+        llmKeyInput = MakeInputField(MakeAiSetupField(content,
+            "大模型密钥（xAI / OpenAI 兼容，仅存本机）"), "粘贴 API Key", 42f, false);
+        llmKeyInput.contentType = InputField.ContentType.Password;
+        llmKeyInput.onEndEdit.AddListener(v => GoLlmAi.ApiKey = v);
+        foreach (var input in aiSetupPanel.GetComponentsInChildren<InputField>(true))
+            StyleAiSetupInput(input);
+
+        var footer = new GameObject("AiSetupFooter", typeof(RectTransform), typeof(VerticalLayoutGroup));
+        footer.transform.SetParent(aiSetupPanel.transform, false);
+        var footerRect = footer.GetComponent<RectTransform>();
+        footerRect.anchorMin = Vector2.zero;
+        footerRect.anchorMax = new Vector2(1f, 0f);
+        footerRect.offsetMin = new Vector2(64f, 44f);
+        footerRect.offsetMax = new Vector2(-64f, 148f);
+        var footerGroup = footer.GetComponent<VerticalLayoutGroup>();
+        footerGroup.spacing = 4f;
+        footerGroup.childAlignment = TextAnchor.LowerCenter;
+        footerGroup.childControlWidth = footerGroup.childControlHeight = true;
+        footerGroup.childForceExpandWidth = true;
+        footerGroup.childForceExpandHeight = false;
+        timeValidationText = MakeText(footer.transform, "", 16, uiTheme.Cinnabar, TextAnchor.MiddleCenter);
+        byoyomiValidationText = MakeText(footer.transform, "", 16, uiTheme.Cinnabar, TextAnchor.MiddleCenter);
+        foreach (var validation in new[] { timeValidationText, byoyomiValidationText })
+        {
+            validation.font = restoredMenuFont != null ? restoredMenuFont : font;
+            validation.fontSize = 16;
+        }
+        var actions = MakeRow(footer.transform, 48f);
+        actions.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+        actions.GetComponent<HorizontalLayoutGroup>().spacing = 16f;
+        var start = MakeButton(actions, "开始对局", 48f, StartAiGame, false);
+        start.GetComponent<LayoutElement>().flexibleWidth = 2f;
+        start.GetComponent<LayoutElement>().minWidth = 220f;
+        StyleAiSetupButton(start, false, true);
+        var back = MakeButton(actions, "返回", 48f, ShowMainMenu);
+        back.GetComponent<LayoutElement>().flexibleWidth = 1f;
+        back.GetComponent<LayoutElement>().minWidth = 140f;
+        StyleAiSetupButton(back, true);
+        SyncAiSetup();
+        aiSetupPanel.SetActive(false);
+    }
+
+    Sprite LoadAiSetupSprite(string key)
+    {
+        string cacheKey = "AiSetup/" + key;
+        if (settingsArt.TryGetValue(cacheKey, out var cached)) return cached;
+        var texture = Resources.Load<Texture2D>("AiSetup/ai_setup_" + key);
+        if (texture == null) return null;
+        Rect crop;
+        switch (key)
+        {
+            case "paper": crop = new Rect(44f, 76f, 936f, 1420f); break;
+            case "title": crop = new Rect(136f, 88f, 1876f, 524f); break;
+            case "option": crop = new Rect(20f, 192f, 2132f, 356f); break;
+            case "option_selected": crop = new Rect(0f, 208f, 2172f, 340f); break;
+            default: crop = new Rect(32f, 172f, 2108f, 404f); break;
+        }
+        var sprite = Sprite.Create(texture, crop, new Vector2(0.5f, 0.5f));
+        settingsArt[cacheKey] = sprite;
+        return sprite;
+    }
+
+    void StyleAiSetupText(Text label, int size)
+    {
+        label.font = restoredMenuFont != null ? restoredMenuFont : font;
+        label.fontSize = size;
+        label.color = new Color(0.26f, 0.16f, 0.10f);
+        label.alignment = TextAnchor.MiddleCenter;
+        label.alignByGeometry = true;
+        var fitter = label.GetComponent<ContentSizeFitter>();
+        if (fitter != null) fitter.enabled = false;
+    }
+
+    Transform MakeAiSetupField(Transform parent, string caption)
+    {
+        var field = new GameObject("Field_" + caption, typeof(RectTransform), typeof(VerticalLayoutGroup));
+        field.transform.SetParent(parent, false);
+        var group = field.GetComponent<VerticalLayoutGroup>();
+        group.spacing = 4f;
+        group.childControlWidth = group.childControlHeight = true;
+        group.childForceExpandWidth = true;
+        group.childForceExpandHeight = false;
+        var label = MakeText(field.transform, caption, 20, Ink, TextAnchor.MiddleCenter);
+        StyleAiSetupText(label, caption.Length > 15 ? 18 : 20);
+        var layout = label.gameObject.AddComponent<LayoutElement>();
+        layout.minHeight = layout.preferredHeight = 24f;
+        return field.transform;
+    }
+
+    List<Button> MakeAiSetupOptions(Transform parent, string[] labels, UnityEngine.Events.UnityAction<int> onPick)
+    {
+        var options = MakeOptions(parent, labels, onPick);
+        var row = options[0].transform.parent.GetComponent<LayoutElement>();
+        row.minHeight = row.preferredHeight = 42f;
+        foreach (var button in options)
+        {
+            var layout = button.GetComponent<LayoutElement>();
+            layout.minHeight = layout.preferredHeight = 42f;
+            StyleAiSetupButton(button);
+        }
+        return options;
+    }
+
+    Text MakeAiSetupStepper(Transform parent, UnityEngine.Events.UnityAction minus, UnityEngine.Events.UnityAction plus)
+    {
+        var value = MakeStepper(parent, minus, plus);
+        StyleAiSetupText(value, 22);
+        var row = value.transform.parent;
+        row.GetComponent<LayoutElement>().minHeight = row.GetComponent<LayoutElement>().preferredHeight = 42f;
+        row.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
+        foreach (var button in row.GetComponentsInChildren<Button>())
+        {
+            SetFixedWidth(button, 62f);
+            button.GetComponent<LayoutElement>().minWidth = 62f;
+            StyleAiSetupButton(button);
+        }
+        return value;
+    }
+
+    void StyleAiSetupButton(Button button, bool selected = false, bool action = false)
+    {
+        var image = button.GetComponent<Image>();
+        image.sprite = LoadAiSetupSprite(action ? "action" : selected ? "option_selected" : "option");
+        image.type = Image.Type.Simple;
+        image.color = Color.white;
+        var colors = button.colors;
+        colors.normalColor = colors.selectedColor = Color.white;
+        colors.highlightedColor = new Color(1f, 0.96f, 0.84f);
+        colors.pressedColor = new Color(0.85f, 0.75f, 0.59f);
+        colors.disabledColor = new Color(1f, 1f, 1f, 0.45f);
+        button.colors = colors;
+        var label = button.GetComponentInChildren<Text>();
+        StyleAiSetupText(label, action ? 24 : 20);
+        label.color = selected ? new Color(0.98f, 0.87f, 0.68f) : new Color(0.26f, 0.16f, 0.10f);
+        label.rectTransform.anchorMin = Vector2.zero;
+        label.rectTransform.anchorMax = Vector2.one;
+        label.rectTransform.offsetMin = new Vector2(10f, 4f);
+        label.rectTransform.offsetMax = new Vector2(-10f, -4f);
+    }
+
+    void StyleAiSetupInput(InputField input)
+    {
+        input.GetComponent<Image>().sprite = LoadAiSetupSprite("option");
+        input.GetComponent<Image>().color = Color.white;
+        foreach (var text in input.GetComponentsInChildren<Text>(true))
+        {
+            StyleAiSetupText(text, 20);
+            text.rectTransform.anchorMin = Vector2.zero;
+            text.rectTransform.anchorMax = Vector2.one;
+            text.rectTransform.offsetMin = new Vector2(18f, 4f);
+            text.rectTransform.offsetMax = new Vector2(-18f, -4f);
+        }
+        if (input.placeholder != null) input.placeholder.color = new Color(0.45f, 0.34f, 0.23f, 0.8f);
+        input.customCaretColor = true;
+        input.caretColor = new Color(0.26f, 0.16f, 0.10f);
+        input.selectionColor = new Color(0.73f, 0.53f, 0.25f, 0.35f);
+    }
+
+    void StyleAiSetupCustomTime(GameObject root)
+    {
+        var layout = root.AddComponent<LayoutElement>();
+        layout.minHeight = layout.preferredHeight = 44f;
+        root.GetComponent<HorizontalLayoutGroup>().childForceExpandHeight = false;
+        foreach (Transform child in root.transform)
+        {
+            var label = child.GetComponent<Text>();
+            if (label == null) continue;
+            StyleAiSetupText(label, 18);
+            var labelLayout = child.gameObject.AddComponent<LayoutElement>();
+            labelLayout.preferredWidth = label.text.StartsWith("每段") ? 190f : 150f;
+            labelLayout.flexibleWidth = 0f;
+        }
     }
 
     void BuildSettingsPanel()
@@ -4236,7 +4394,13 @@ public class GoGame : MonoBehaviour
         }
 
         FitPanelHeight(mainPanel, 680f);
-        FitPanelHeight(aiSetupPanel, 860f);
+        if (aiSetupPanel != null)
+        {
+            var canvasRect = menuCanvas.GetComponent<RectTransform>().rect;
+            aiSetupPanel.GetComponent<RectTransform>().sizeDelta = new Vector2(
+                Mathf.Min(800f, canvasRect.width - 80f),
+                Mathf.Min(960f, canvasRect.height - 80f));
+        }
         FitPanelHeight(historyPanel, 680f);
         if (settingsPanel != null)
         {
@@ -4456,6 +4620,11 @@ public class GoGame : MonoBehaviour
         for (int i = 0; i < btns.Count; i++)
         {
             bool on = i == sel;
+            if (aiSetupPanel != null && btns[i].transform.IsChildOf(aiSetupPanel.transform))
+            {
+                StyleAiSetupButton(btns[i], on);
+                continue;
+            }
             btns[i].GetComponent<Image>().color = on ? Accent : BtnBg;
             btns[i].GetComponentInChildren<Text>().color = on ? new Color(0.11f, 0.09f, 0.07f) : Ink;
         }

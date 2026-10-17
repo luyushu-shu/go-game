@@ -52,6 +52,45 @@ public sealed class GoUiVisualReview : MonoBehaviour
             throw new InvalidOperationException("Primary plaque right edge is cropped.");
         Capture("main-menu.png");
 
+        Invoke(game, "ShowAiSetup");
+        yield return new WaitForSecondsRealtime(0.4f);
+        Canvas.ForceUpdateCanvases();
+        yield return new WaitForEndOfFrame();
+        Capture("ai-setup.png");
+        var ai = (GameObject)typeof(GoGame).GetField("aiSetupPanel", PrivateInstance).GetValue(game);
+        if (ai.GetComponent<Image>().sprite.texture.name != "ai_setup_paper")
+            throw new InvalidOperationException("AI setup does not use its independent background.");
+        foreach (var optionName in new[] { "optSize", "optColor", "optMainTime", "optByoyomi", "optOpponent" })
+        {
+            var options = (List<Button>)typeof(GoGame).GetField(optionName, PrivateInstance).GetValue(game);
+            int selected = 0;
+            foreach (var optionButton in options)
+            {
+                if (optionButton.GetComponent<Image>().sprite.texture.name == "ai_setup_option_selected") selected++;
+                var label = optionButton.GetComponentInChildren<Text>();
+                if (label.alignment != TextAnchor.MiddleCenter || !label.alignByGeometry)
+                    throw new InvalidOperationException("AI setup option is not centered.");
+            }
+            if (selected != 1) throw new InvalidOperationException("AI setup selection is ambiguous: " + optionName);
+            observations.Add("AI options: " + optionName + " centered, one selection");
+        }
+        var timeOptions = (List<Button>)typeof(GoGame).GetField("optMainTime", PrivateInstance).GetValue(game);
+        var byoyomiOptions = (List<Button>)typeof(GoGame).GetField("optByoyomi", PrivateInstance).GetValue(game);
+        int mainPreset = timeOptions.FindIndex(b => b.GetComponent<Image>().sprite.texture.name == "ai_setup_option_selected");
+        int byoyomiPreset = byoyomiOptions.FindIndex(b => b.GetComponent<Image>().sprite.texture.name == "ai_setup_option_selected");
+        var footer = ai.transform.Find("AiSetupFooter").GetComponent<RectTransform>();
+        var footerPosition = footer.anchoredPosition;
+        timeOptions[4].onClick.Invoke();
+        byoyomiOptions[4].onClick.Invoke();
+        yield return null;
+        Canvas.ForceUpdateCanvases();
+        yield return new WaitForEndOfFrame();
+        if (footer.anchoredPosition != footerPosition)
+            throw new InvalidOperationException("AI footer moved when custom time expanded.");
+        Capture("ai-setup-custom-time.png");
+        timeOptions[mainPreset].onClick.Invoke();
+        byoyomiOptions[byoyomiPreset].onClick.Invoke();
+
         Invoke(game, "ShowSettings");
         Invoke(game, "ShowSettingsSection", 3);
         yield return new WaitForSecondsRealtime(0.4f);
