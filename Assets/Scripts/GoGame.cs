@@ -242,6 +242,8 @@ public class GoGame : MonoBehaviour
 
     // 主界面
     GameObject menuCanvas, mainPanel, aiSetupPanel, historyPanel, historyDetail, settingsPanel;
+    Sprite restoredMenuTitle, restoredMenuPrimary, restoredMenuSecondary, restoredSettingsIcon, restoredVolumeIcon, restoredMuteIcon;
+    Font restoredMenuFont;
     RectTransform menuSafeArea;
     GameObject historyDeleteDialog;
     GameObject settingsButtonRoot;
@@ -425,6 +427,8 @@ public class GoGame : MonoBehaviour
         inMenu = false;
         reviewingKifu = false;
         menuCanvas.SetActive(false);
+        if (gameUiPanel != null) gameUiPanel.SetActive(true);
+        if (boardRoot != null) boardRoot.gameObject.SetActive(true);
         if (uiNavigator != null)
             uiNavigator.Show(vsAI ? GoUiPage.Playing : GoUiPage.Study);
         gameStartedAt = System.DateTime.Now;
@@ -563,6 +567,8 @@ public class GoGame : MonoBehaviour
         if (audioManager != null) audioManager.SavePrefs();
         inMenu = true;
         reviewingKifu = false;
+        if (gameUiPanel != null) gameUiPanel.SetActive(false);
+        if (boardRoot != null) boardRoot.gameObject.SetActive(false);
         menuCanvas.SetActive(true);
         if (uiNavigator != null) uiNavigator.Show(GoUiPage.MainMenu);
         mainPanel.SetActive(true);
@@ -2328,22 +2334,34 @@ public class GoGame : MonoBehaviour
 
     void BuildMenu()
     {
-        menuCanvas = new GameObject("MenuCanvas");
-        menuCanvas.transform.SetParent(mainCanvasLayer.transform, false);
-        var canvas = menuCanvas.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 20;
-        var scaler = menuCanvas.AddComponent<CanvasScaler>();
-        ConfigureCanvasScaler(scaler);
-        menuCanvas.AddComponent<GraphicRaycaster>();
+        // A screen-space canvas must be a root canvas. Nesting it under
+        // MainCanvas left its RectTransform at the parent's default 100x100,
+        // so corner-anchored controls collapsed into the centre of the menu.
+        menuCanvas = CreateCanvasLayer("MenuCanvas", 20, true);
 
         var bg = new GameObject("Bg");
         bg.transform.SetParent(menuCanvas.transform, false);
         var bimg = bg.AddComponent<Image>();
-        bimg.color = new Color(0.08f, 0.07f, 0.05f, 0.72f);
+        bimg.sprite = LoadArtSprite(
+            "Assets/Art/UI/Background/qiyi_ink_room_2048.png",
+            GoRuntimeAssetManifest.InkRoomBackgroundKey);
+        bimg.color = bimg.sprite != null
+            ? new Color(0.88f, 0.85f, 0.80f, 1f)
+            : new Color(0.14f, 0.11f, 0.08f, 1f);
+        bimg.raycastTarget = false;
         var brt = bg.GetComponent<RectTransform>();
         brt.anchorMin = Vector2.zero; brt.anchorMax = Vector2.one;
         brt.sizeDelta = Vector2.zero; brt.anchoredPosition = Vector2.zero;
+
+        // The menu has its own opaque background so the board stays hidden.
+        // Reapply the decorative layers above it instead of relying on the
+        // scene background, which sits behind the game board.
+        AddBackgroundSprite(menuCanvas.transform, "MenuMountainSilhouette",
+            "Assets/Art/UI/Background/qiyi_mountain_silhouette_2048.png",
+            GoRuntimeAssetManifest.MountainSilhouetteKey, 0.32f);
+        AddBackgroundSprite(menuCanvas.transform, "MenuBambooShadow",
+            "Assets/Art/UI/Background/qiyi_bamboo_shadow_1024.png",
+            GoRuntimeAssetManifest.BambooShadowKey, 0.26f);
 
         var safeArea = new GameObject("SafeArea");
         safeArea.transform.SetParent(menuCanvas.transform, false);
@@ -2357,26 +2375,59 @@ public class GoGame : MonoBehaviour
             -GoUiTheme.SafeAreaMarginCanvasX(Screen.width, Screen.height),
             -GoUiTheme.SafeAreaMarginCanvasY(Screen.width, Screen.height));
 
-        mainPanel = BuildMenuPanel("MainMenuPage", 420f, 600f, pt =>
+        restoredMenuTitle = LoadRestoredMenuSprite("menu_title", new Rect(56f, 40f, 2090f, 640f));
+        restoredMenuPrimary = LoadRestoredMenuSprite("menu_primary", new Rect(0f, 170f, 1980f, 460f));
+        restoredMenuSecondary = LoadRestoredMenuSprite("menu_secondary", new Rect(0f, 145f, 2146f, 450f));
+        restoredSettingsIcon = LoadRestoredMenuSprite("menu_settings", new Rect(120f, 120f, 1020f, 1020f));
+        restoredVolumeIcon = LoadRestoredMenuSprite("menu_volume", new Rect(256f, 294f, 784f, 630f));
+        restoredMuteIcon = LoadRestoredMenuSprite("menu_mute", new Rect(312f, 270f, 704f, 704f));
+        restoredMenuFont = Font.CreateDynamicFontFromOSFont(new[] { "STZhongsong", "华文中宋", "Noto Serif CJK SC", "SimSun", "Microsoft YaHei" }, 18);
+
+        mainPanel = new GameObject("MainMenuPage", typeof(RectTransform), typeof(Image));
+        mainPanel.transform.SetParent(menuCanvas.transform, false);
+        var mainRect = mainPanel.GetComponent<RectTransform>();
+        mainRect.anchorMin = mainRect.anchorMax = new Vector2(0.5f, 0.5f);
+        mainRect.pivot = new Vector2(0.5f, 0.5f);
+        mainRect.sizeDelta = new Vector2(500f, 680f);
+        mainRect.anchoredPosition = Vector2.zero;
+        var mainPanelImage = mainPanel.GetComponent<Image>();
+        mainPanelImage.color = Color.clear;
+        mainPanelImage.raycastTarget = false;
+
+        var title = new GameObject("MenuTitle", typeof(RectTransform), typeof(Image));
+        title.transform.SetParent(mainPanel.transform, false);
+        var titleRect = title.GetComponent<RectTransform>();
+        titleRect.anchorMin = titleRect.anchorMax = new Vector2(0.5f, 1f);
+        titleRect.pivot = new Vector2(0.5f, 0.5f);
+        titleRect.sizeDelta = new Vector2(400f, 110f);
+        titleRect.anchoredPosition = new Vector2(0f, -60f);
+        var titleImage = title.GetComponent<Image>();
+        titleImage.sprite = restoredMenuTitle;
+        titleImage.preserveAspect = true;
+        titleImage.color = Color.white;
+        titleImage.raycastTarget = false;
+        if (restoredMenuTitle == null)
         {
-            MakeText(pt, "棋弈有道", 56, Ink, TextAnchor.MiddleCenter);
-            MakeText(pt, "宋式清雅 · 夜案棋局", 14, Dim, TextAnchor.MiddleCenter);
+            var fallbackTitle = MakeText(title.transform, "棋弈有道", 50, Ink, TextAnchor.MiddleCenter);
+            fallbackTitle.rectTransform.anchorMin = Vector2.zero;
+            fallbackTitle.rectTransform.anchorMax = Vector2.one;
+            fallbackTitle.rectTransform.offsetMin = fallbackTitle.rectTransform.offsetMax = Vector2.zero;
+        }
+        var subtitle = MakeText(mainPanel.transform, "宋式清雅 · 夜案棋局", 14,
+            new Color(0.88f, 0.77f, 0.59f), TextAnchor.MiddleCenter);
+        var subtitleFitter = subtitle.GetComponent<ContentSizeFitter>();
+        if (subtitleFitter != null) subtitleFitter.enabled = false;
+        subtitle.font = restoredMenuFont != null ? restoredMenuFont : font;
+        var subtitleRect = subtitle.rectTransform;
+        subtitleRect.anchorMin = subtitleRect.anchorMax = new Vector2(0.5f, 1f);
+        subtitleRect.pivot = new Vector2(0.5f, 0.5f);
+        subtitleRect.sizeDelta = new Vector2(360f, 28f);
+        subtitleRect.anchoredPosition = new Vector2(0f, -133f);
 
-            var study = MakeButton(pt, "打谱", 64f, StartStudyGame, false);
-            SetFixedWidth(study, 280f);
-            study.GetComponent<Image>().color = Accent;
-            StyleAccentLabel(study);
-
-            var ai = MakeButton(pt, "人机对弈", 64f, ShowAiSetup);
-            SetFixedWidth(ai, 280f);
-            var history = MakeButton(pt, "历史棋谱", 64f, ShowHistoryPanel);
-            SetFixedWidth(history, 280f);
-
-            var quit = MakeButton(pt, "退出", 64f, QuitGame);
-            SetFixedWidth(quit, 280f);
-            quit.GetComponentInChildren<Text>().color = Dim;
-        });
-        mainPanel.GetComponent<VerticalLayoutGroup>().spacing = 16f;
+        CreateRestoredMenuButton("打谱", -205f, StartStudyGame, true, false);
+        CreateRestoredMenuButton("人机对弈", -293f, ShowAiSetup);
+        CreateRestoredMenuButton("历史棋谱", -381f, ShowHistoryPanel);
+        CreateRestoredMenuButton("退出", -469f, QuitGame);
 
         aiSetupPanel = BuildMenuPanel("AiSetupPage", 620f, 860f, pt =>
         {
@@ -2707,20 +2758,25 @@ public class GoGame : MonoBehaviour
 
     void BuildSettingsButton()
     {
-        var button = MakeButton(menuSafeArea != null ? menuSafeArea : menuCanvas.transform,
-            "⚙ 设置", 40f, ShowSettings);
-        settingsButtonRoot = button.gameObject;
-        AttachButtonIcon(button, GoIconCatalog.Settings);
-        SetFixedWidth(button, 116f);
-        var rect = button.GetComponent<RectTransform>();
+        settingsButtonRoot = new GameObject("SettingsIconButton", typeof(RectTransform), typeof(Image), typeof(Button));
+        settingsButtonRoot.transform.SetParent(menuCanvas.transform, false);
+        var image = settingsButtonRoot.GetComponent<Image>();
+        image.sprite = restoredSettingsIcon != null ? restoredSettingsIcon : GoIconCatalog.Load(GoIconCatalog.Settings);
+        image.color = new Color(0.94f, 0.79f, 0.48f);
+        image.preserveAspect = true;
+        var button = settingsButtonRoot.GetComponent<Button>();
+        button.targetGraphic = image;
+        button.onClick.AddListener(ShowSettings);
+        var rect = settingsButtonRoot.GetComponent<RectTransform>();
         rect.anchorMin = rect.anchorMax = new Vector2(1f, 1f);
         rect.pivot = new Vector2(1f, 1f);
-        rect.anchoredPosition = new Vector2(-28f, -26f);
+        rect.sizeDelta = new Vector2(42f, 42f);
+        rect.anchoredPosition = new Vector2(-24f, -24f);
     }
 
     void BuildVersionLabel()
     {
-        var version = MakeText(menuSafeArea != null ? menuSafeArea : menuCanvas.transform,
+        var version = MakeText(menuCanvas.transform,
             "版本号", 13, Dim, TextAnchor.MiddleLeft);
         version.text = "版本 " + Application.version;
         var rect = version.rectTransform;
@@ -2733,47 +2789,110 @@ public class GoGame : MonoBehaviour
     void BuildVolumeQuickControl()
     {
         var root = new GameObject("VolumeQuickControl");
-        root.transform.SetParent(menuSafeArea != null ? menuSafeArea : menuCanvas.transform, false);
+        root.transform.SetParent(menuCanvas.transform, false);
         var rootRect = root.AddComponent<RectTransform>();
         rootRect.anchorMin = rootRect.anchorMax = new Vector2(1f, 0f);
         rootRect.pivot = new Vector2(1f, 0f);
-        rootRect.anchoredPosition = new Vector2(-28f, 28f);
-        rootRect.sizeDelta = new Vector2(330f, 52f);
-        var rootImage = root.AddComponent<Image>();
-        rootImage.color = new Color(0.10f, 0.08f, 0.06f, 0.78f);
+        rootRect.anchoredPosition = new Vector2(-24f, 24f);
+        rootRect.sizeDelta = new Vector2(210f, 38f);
         var layout = root.AddComponent<HorizontalLayoutGroup>();
-        layout.padding = new RectOffset(10, 10, 8, 8);
-        layout.spacing = 8f;
+        layout.padding = new RectOffset(0, 0, 0, 0);
+        layout.spacing = 12f;
         layout.childAlignment = TextAnchor.MiddleCenter;
         layout.childControlWidth = true;
         layout.childControlHeight = true;
         layout.childForceExpandWidth = false;
         layout.childForceExpandHeight = true;
 
-        var iconObject = new GameObject("Icon");
-        iconObject.transform.SetParent(root.transform, false);
-        var iconLayout = iconObject.AddComponent<LayoutElement>();
-        iconLayout.preferredWidth = 28f;
-        iconLayout.minWidth = 28f;
-        iconLayout.preferredHeight = 28f;
-        var icon = iconObject.AddComponent<Image>();
-        icon.sprite = GoIconCatalog.Load(GoIconCatalog.Volume);
-        icon.color = uiTheme.Gold;
-        icon.raycastTarget = false;
-
         quickMasterVolumeSlider = uiFactory.MakeSlider(root.transform, "MasterVolumeSlider",
             audioManager != null ? audioManager.MasterVolume : GoAudioManager.DefaultMasterVolume,
             value => audioManager?.SetMasterVolume(value));
         var sliderLayout = quickMasterVolumeSlider.GetComponent<LayoutElement>();
-        sliderLayout.preferredWidth = QuickVolumeSliderWidth();
+        sliderLayout.preferredWidth = 160f;
         sliderLayout.minWidth = sliderLayout.preferredWidth;
         sliderLayout.flexibleWidth = 0f;
+        StyleMenuVolumeSlider(quickMasterVolumeSlider);
 
-        quickMuteButton = MakeButton(root.transform, "静音", 32f,
-            () => SetMuteFromUi(audioManager != null && !audioManager.IsMuted));
-        SetFixedWidth(quickMuteButton, 56f);
-        quickMuteIcon = AttachButtonIcon(quickMuteButton, GoIconCatalog.Mute);
+        var muteRoot = new GameObject("MuteIconButton", typeof(RectTransform), typeof(LayoutElement), typeof(Image), typeof(Button));
+        muteRoot.transform.SetParent(root.transform, false);
+        muteRoot.transform.SetSiblingIndex(0);
+        var muteLayout = muteRoot.GetComponent<LayoutElement>();
+        muteLayout.preferredWidth = muteLayout.minWidth = 34f;
+        muteLayout.preferredHeight = muteLayout.minHeight = 34f;
+        quickMuteIcon = muteRoot.GetComponent<Image>();
+        quickMuteIcon.sprite = restoredVolumeIcon != null ? restoredVolumeIcon : GoIconCatalog.Load(GoIconCatalog.Volume);
+        quickMuteIcon.color = new Color(0.94f, 0.79f, 0.48f);
+        quickMuteIcon.preserveAspect = true;
+        quickMuteButton = muteRoot.GetComponent<Button>();
+        quickMuteButton.targetGraphic = quickMuteIcon;
+        quickMuteButton.onClick.AddListener(() => SetMuteFromUi(audioManager != null && !audioManager.IsMuted));
         SyncAudioControls();
+    }
+
+    void StyleMenuVolumeSlider(Slider slider)
+    {
+        if (slider == null) return;
+        var sliderLayout = slider.GetComponent<LayoutElement>();
+        if (sliderLayout != null)
+        {
+            sliderLayout.preferredHeight = 34f;
+            sliderLayout.minHeight = 34f;
+        }
+
+        var track = slider.GetComponent<Image>();
+        var trackTexture = Resources.Load<Texture2D>("MainMenu/menu_volume_track_v2");
+        if (trackTexture != null)
+        {
+            track.sprite = Sprite.Create(trackTexture,
+                new Rect(0f, trackTexture.height * 0.39f,
+                    trackTexture.width, trackTexture.height * 0.25f),
+                new Vector2(0.5f, 0.5f));
+            track.type = Image.Type.Simple;
+            track.preserveAspect = false;
+            track.color = Color.white;
+        }
+
+        var fillArea = slider.transform.Find("Fill Area") as RectTransform;
+        if (fillArea != null)
+        {
+            fillArea.anchorMin = new Vector2(0f, 0.43f);
+            fillArea.anchorMax = new Vector2(1f, 0.57f);
+            fillArea.offsetMin = new Vector2(12f, 0f);
+            fillArea.offsetMax = new Vector2(-12f, 0f);
+            var fill = fillArea.Find("Fill");
+            var fillImage = fill != null ? fill.GetComponent<Image>() : null;
+            if (fillImage != null)
+                fillImage.color = new Color(0.81f, 0.59f, 0.27f, 0.85f);
+        }
+
+        var handleArea = new GameObject("Handle Slide Area", typeof(RectTransform));
+        handleArea.transform.SetParent(slider.transform, false);
+        var areaRect = handleArea.GetComponent<RectTransform>();
+        areaRect.anchorMin = Vector2.zero;
+        areaRect.anchorMax = Vector2.one;
+        areaRect.offsetMin = new Vector2(12f, 0f);
+        areaRect.offsetMax = new Vector2(-12f, 0f);
+
+        var handle = new GameObject("Handle", typeof(RectTransform), typeof(Image));
+        handle.transform.SetParent(handleArea.transform, false);
+        var handleRect = handle.GetComponent<RectTransform>();
+        handleRect.anchorMin = handleRect.anchorMax = new Vector2(0.5f, 0.5f);
+        handleRect.pivot = new Vector2(0.5f, 0.5f);
+        handleRect.sizeDelta = new Vector2(30f, 30f);
+        var handleImage = handle.GetComponent<Image>();
+        var handleTexture = Resources.Load<Texture2D>("MainMenu/menu_volume_thumb_v2");
+        if (handleTexture != null)
+        {
+            handleImage.sprite = Sprite.Create(handleTexture,
+                new Rect(handleTexture.width * 0.30f, handleTexture.height * 0.10f,
+                    handleTexture.width * 0.62f, handleTexture.height * 0.60f),
+                new Vector2(0.5f, 0.5f));
+            handleImage.color = Color.white;
+            handleImage.preserveAspect = true;
+        }
+        else handleImage.color = new Color(0.9f, 0.7f, 0.35f);
+        handleImage.raycastTarget = false;
+        slider.handleRect = handleRect;
     }
 
     static float QuickVolumeSliderWidth()
@@ -2877,8 +2996,9 @@ public class GoGame : MonoBehaviour
             var label = quickMuteButton.GetComponentInChildren<Text>();
             if (label != null) label.text = audioManager.IsMuted ? "取消静音" : "静音";
             if (quickMuteIcon != null)
-                quickMuteIcon.sprite = GoIconCatalog.Load(
-                    audioManager.IsMuted ? GoIconCatalog.Mute : GoIconCatalog.Volume);
+                quickMuteIcon.sprite = audioManager.IsMuted
+                    ? (restoredMuteIcon != null ? restoredMuteIcon : GoIconCatalog.Load(GoIconCatalog.Mute))
+                    : (restoredVolumeIcon != null ? restoredVolumeIcon : GoIconCatalog.Load(GoIconCatalog.Volume));
         }
     }
 
@@ -3530,7 +3650,7 @@ public class GoGame : MonoBehaviour
     GameObject BuildMenuPanel(string name, float width, float height, System.Action<Transform> build)
     {
         var panel = new GameObject(name);
-        panel.transform.SetParent(menuSafeArea != null ? menuSafeArea : menuCanvas.transform, false);
+        panel.transform.SetParent(menuCanvas.transform, false);
         var pimg = panel.AddComponent<Image>();
         pimg.color = new Color(0.14f, 0.11f, 0.08f, 1f);
         var prt = panel.GetComponent<RectTransform>();
@@ -3549,6 +3669,66 @@ public class GoGame : MonoBehaviour
         vlg.childForceExpandHeight = false;
         build(panel.transform);
         return panel;
+    }
+
+    Sprite LoadRestoredMenuSprite(string key, Rect crop, Vector4 border = default(Vector4))
+    {
+        var texture = Resources.Load<Texture2D>("MainMenu/" + key);
+        if (texture == null) return null;
+        crop.x = Mathf.Clamp(crop.x, 0f, texture.width - 1f);
+        crop.y = Mathf.Clamp(crop.y, 0f, texture.height - 1f);
+        crop.width = Mathf.Min(crop.width, texture.width - crop.x);
+        crop.height = Mathf.Min(crop.height, texture.height - crop.y);
+        return Sprite.Create(texture, crop, new Vector2(0.5f, 0.5f), 100f, 0u, SpriteMeshType.FullRect, border);
+    }
+
+    void StyleRestoredMenuButton(Button button, bool primary = false)
+    {
+        if (button == null) return;
+        var image = button.GetComponent<Image>();
+        image.sprite = primary ? restoredMenuPrimary : restoredMenuSecondary;
+        // The art is a complete long plaque, not a 9-slice texture.
+        image.type = Image.Type.Simple;
+        image.preserveAspect = false;
+        image.color = image.sprite != null ? Color.white : new Color(0.30f, 0.19f, 0.11f);
+        var label = button.GetComponentInChildren<Text>();
+        if (label != null)
+        {
+            label.font = restoredMenuFont != null ? restoredMenuFont : font;
+            label.fontSize = 22;
+            label.color = primary ? new Color(0.25f, 0.15f, 0.08f) : new Color(0.96f, 0.85f, 0.67f);
+            label.alignment = TextAnchor.MiddleCenter;
+            label.alignByGeometry = true;
+            var fitter = label.GetComponent<ContentSizeFitter>();
+            if (fitter != null) fitter.enabled = false;
+            var labelRect = label.rectTransform;
+            labelRect.anchorMin = labelRect.anchorMax = new Vector2(0.5f, 0.5f);
+            labelRect.pivot = new Vector2(0.5f, 0.5f);
+            labelRect.sizeDelta = new Vector2(330f, 44f);
+            // This OS calligraphic font has asymmetric glyph bearings. Align
+            // the painted glyphs with the plaque, not just the UI text box.
+            labelRect.anchoredPosition = new Vector2(0f, primary ? 13f : -11f);
+        }
+        var colors = button.colors;
+        colors.normalColor = Color.white;
+        colors.highlightedColor = new Color(1f, 0.94f, 0.78f);
+        colors.pressedColor = new Color(0.82f, 0.72f, 0.55f);
+        button.colors = colors;
+    }
+
+    void CreateRestoredMenuButton(string label, float topOffset,
+        UnityEngine.Events.UnityAction onClick, bool primary = false,
+        bool playClickSound = true)
+    {
+        var button = MakeButton(mainPanel.transform, label, 68f, onClick, playClickSound);
+        var layout = button.GetComponent<LayoutElement>();
+        if (layout != null) layout.enabled = false;
+        var rect = button.GetComponent<RectTransform>();
+        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 1f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.sizeDelta = new Vector2(370f, 68f);
+        rect.anchoredPosition = new Vector2(0f, topOffset);
+        StyleRestoredMenuButton(button, primary);
     }
 
     static void ConfigureCanvasScaler(CanvasScaler scaler)
@@ -3602,7 +3782,7 @@ public class GoGame : MonoBehaviour
             menuSafeArea.offsetMax = new Vector2(-safeX, -safeY);
         }
 
-        FitPanelHeight(mainPanel, 600f);
+        FitPanelHeight(mainPanel, 680f);
         FitPanelHeight(aiSetupPanel, 860f);
         FitPanelHeight(historyPanel, 680f);
         FitPanelHeight(settingsPanel, 620f);
