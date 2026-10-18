@@ -1932,12 +1932,6 @@ public partial class GoGame : MonoBehaviour
     {
         if (scoreDialog == null || reviewingKifu || inMenu || rules == null
             || rules.Result != null) return;
-        if (rules.Phase != GoPhase.Scoring)
-        {
-            Flash("双方各停一手后才能数目");
-            return;
-        }
-
         rules.ComputeScore(out float blackScore, out float whiteScore,
             out int blackStones, out int blackTerritory,
             out int whiteStones, out int whiteTerritory);
@@ -1952,8 +1946,10 @@ public partial class GoGame : MonoBehaviour
 
     void ConfirmScoreDialog()
     {
-        if (rules == null || rules.Phase != GoPhase.Scoring) return;
+        if (rules == null || rules.Result != null) return;
+        if (rules.Phase != GoPhase.Play && rules.Phase != GoPhase.Scoring) return;
         InvalidateAiTurn();
+        if (rules.Phase == GoPhase.Play) rules.BeginScoring();
         rules.ConfirmEnd();
         if (scoreDialog != null) scoreDialog.SetActive(false);
         StopPlayClock();

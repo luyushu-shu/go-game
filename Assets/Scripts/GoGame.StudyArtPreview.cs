@@ -10,7 +10,10 @@ public partial class GoGame
     void StartStudyArtPreviewIfRequested()
     {
         if (Array.IndexOf(Environment.GetCommandLineArgs(), "-studyArtPreview") >= 0)
+        {
+            Application.runInBackground = true;
             StartCoroutine(CaptureStudyArtPreview());
+        }
     }
 
     IEnumerator CaptureStudyArtPreview()
@@ -40,6 +43,13 @@ public partial class GoGame
         if (boardSkin.ShowMoveNumbers) throw new Exception("Move toggle failed");
         Undo();
         if (rules.LoggedMoveCount != 7) throw new Exception("Undo failed");
+        yield return null;
+        if (studyArtRecordContent.childCount != 7) throw new Exception("Record rows did not refresh");
+        OpenScorePopup();
+        if (!scoreDialog.activeSelf || rules.Phase != GoPhase.Play)
+            throw new Exception("Score cannot open before two passes");
+        CancelScoreDialog();
+        if (rules.Phase != GoPhase.Play) throw new Exception("Cancel score changed play phase");
         // Exercise other supported desktop aspect ratios without touching the user's save.
         foreach (var size in new[] { new Vector2Int(1440,900), new Vector2Int(1280,720) })
         {
@@ -49,10 +59,17 @@ public partial class GoGame
         }
         rules.AgreeDraw();
         if (rules.Phase != GoPhase.Over || rules.Result != "双方和棋") throw new Exception("Draw failed");
+        rules = new GoRules(19);
+        rules.Play(3, 3, out _);
+        Refresh();
+        OpenScorePopup();
+        ConfirmScoreDialog();
+        if (rules.Phase != GoPhase.Over || string.IsNullOrEmpty(rules.Result))
+            throw new Exception("Direct scoring did not finish an active game");
         inStudyMode = false;
         ShowMainMenu(); UpdateStudyArtLayout();
         if (studyArtRoot.activeSelf || !sceneBackgroundLayer.activeSelf) throw new Exception("Menu restoration failed");
-        File.WriteAllText(Path.Combine(folder, "validation.txt"), "PASS: asset loading, layout at 1600x900 / 1440x900 / 1280x720, judgment data, coordinate and move-number toggles, undo, draw, menu restoration.");
+        File.WriteAllText(Path.Combine(folder, "validation.txt"), "PASS: art assets, centered stone-coordinate record rows, active-play scoring, layout at 1600x900 / 1440x900 / 1280x720, judgment, toggles, undo, draw, menu restoration.");
         Application.Quit(0);
     }
 

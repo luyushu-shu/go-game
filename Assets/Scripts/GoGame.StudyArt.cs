@@ -11,8 +11,14 @@ public partial class GoGame
     GameObject studyArtRoot, studyLegacyPanel, studyArtDialog;
     RectTransform studyArtCanvas, studyArtPanel, studyArtToggles, studyArtDialogCard;
     SpriteRenderer studyArtBackground;
-    Text studyArtLog, studyArtTurn, studyArtMessage, studyBlackCaptures, studyWhiteCaptures;
-    Text studyArtMovesLabel, studyArtCoordsLabel, studyArtLead, studyArtBlackScore, studyArtWhiteScore;
+    Text studyArtTurn, studyBlackCaptures, studyWhiteCaptures;
+    Text studyArtTurnNumber;
+    Image studyArtTurnPrefix, studyArtBlackTurnArt, studyArtWhiteTurnArt;
+    RectTransform studyArtRecordContent;
+    ScrollRect studyArtRecordScroll;
+    int studyArtRecordSignature = int.MinValue;
+    Image studyArtMovesLabel, studyArtCoordsLabel;
+    Text studyArtLead, studyArtBlackScore, studyArtWhiteScore;
     Text studyArtBlackPrisoners, studyArtWhitePrisoners, studyArtDialogTitle, studyArtDialogNote;
     Button studyArtUndo, studyArtPass, studyArtDraw, studyArtScore, studyArtResign;
     Button studyArtDialogConfirm;
@@ -73,6 +79,34 @@ public partial class GoGame
         return text;
     }
 
+    string StudyArtLabelAsset(string label)
+    {
+        switch (label)
+        {
+            case "悔棋": return "label-undo-v1";
+            case "停一手": return "label-pass-v1";
+            case "和棋": return "label-draw-v1";
+            case "数目": return "label-score-v1";
+            case "认输": return "label-resign-v1";
+            case "形势判断": return "label-judgment-v1";
+            case "返回主界面": return "label-home-v1";
+            case "手数": return "label-moves-v1";
+            case "坐标": return "label-coordinates-v1";
+            default: return null;
+        }
+    }
+
+    Image StudyArtLabelImage(Transform parent, string name, string asset,
+        Vector2 min, Vector2 max, Vector2 offsetMin, Vector2 offsetMax)
+    {
+        var rt = StudyArtRect(parent, name, min, max, offsetMin, offsetMax);
+        var image = rt.gameObject.AddComponent<Image>();
+        image.sprite = StudyArtSprite(asset);
+        image.preserveAspect = true;
+        image.raycastTarget = false;
+        return image;
+    }
+
     Button StudyArtButton(Transform parent, string label, UnityAction action,
         Vector2 min, Vector2 max, Vector2 offsetMin, Vector2 offsetMax, bool dark = false)
     {
@@ -87,15 +121,28 @@ public partial class GoGame
         colors.disabledColor = new Color(0.65f, 0.62f, 0.57f, 0.65f);
         colors.fadeDuration = 0.12f; button.colors = colors;
         button.onClick.AddListener(action);
-        StudyArtText(rt, "Label", label, dark ? 25 : 18, dark ? Ink : StudyInk,
+        string labelAsset = StudyArtLabelAsset(label);
+        if (labelAsset != null)
+        {
+            // Keep the painted lettering within the parchment border with consistent breathing room.
+            int sideInset = dark ? 14 : (label.Length > 3 ? 18 : (label.Length == 3 ? 6 : 12));
+            int verticalInset = dark ? 20 : (label.Length > 3 ? 8 : (label.Length == 3 ? 10 : 15));
+            var labelImage = StudyArtLabelImage(rt, "LabelArt", labelAsset,
+                Vector2.zero, Vector2.one,
+                new Vector2(sideInset, verticalInset),
+                new Vector2(-sideInset, -verticalInset));
+        }
+        else StudyArtText(rt, "Label", label, dark ? 25 : 18, dark ? Ink : StudyInk,
             Vector2.zero, Vector2.one, new Vector2(5, 5), new Vector2(-5, -5));
         return button;
     }
 
     void StudyArtStone(Transform parent, bool black, Vector2 center, float size)
     {
+        // The black artwork reads smaller at equal bounds because its dark rim blends into walnut.
+        float visualSize = black ? size * 1.12f : size;
         var rt = StudyArtRect(parent, black ? "BlackStone" : "WhiteStone", center, center,
-            new Vector2(-size / 2, -size / 2), new Vector2(size / 2, size / 2));
+            new Vector2(-visualSize / 2, -visualSize / 2), new Vector2(visualSize / 2, visualSize / 2));
         var image = rt.gameObject.AddComponent<Image>();
         image.sprite = black ? stoneBlack : stoneWhite;
         image.preserveAspect = true; image.raycastTarget = false;
@@ -134,34 +181,48 @@ public partial class GoGame
         StudyArtStone(players, true, new Vector2(0.25f, 0.70f), 58);
         StudyArtStone(players, false, new Vector2(0.75f, 0.70f), 58);
         studyBlackCaptures = StudyArtText(players, "BlackCaptures", "0", 26, Ink, new Vector2(0, 0), new Vector2(.4f, .38f), Vector2.zero, Vector2.zero);
-        StudyArtText(players, "CapturesTitle", "提子", 17, StudyGold, new Vector2(.4f, 0), new Vector2(.6f, .38f), Vector2.zero, Vector2.zero);
+        StudyArtLabelImage(players, "CapturesTitleArt", "label-captures-v1",
+            new Vector2(.4f, 0), new Vector2(.6f, .38f), Vector2.zero, Vector2.zero);
         studyWhiteCaptures = StudyArtText(players, "WhiteCaptures", "0", 26, Ink, new Vector2(.6f, 0), new Vector2(1, .38f), Vector2.zero, Vector2.zero);
 
         var record = StudyArtRect(studyArtPanel, "ParchmentRecord", Vector2.zero, Vector2.one,
-            new Vector2(22, 207), new Vector2(-22, -137));
+            new Vector2(22, 207), new Vector2(-22, -130));
         StudyArtImage(record, "record-parchment-v1");
-        StudyArtText(record, "RecordTitle", "行 棋 记 录", 22, StudyInk,
-            new Vector2(0, 1), Vector2.one, new Vector2(22, -61), new Vector2(-22, -18));
+        var recordTitle = StudyArtRect(record, "RecordTitleArt", new Vector2(.5f, 1),
+            new Vector2(.5f, 1), new Vector2(-105, -61), new Vector2(105, -17));
+        var recordTitleImage = recordTitle.gameObject.AddComponent<Image>();
+        recordTitleImage.sprite = StudyArtSprite("record-title-v1");
+        recordTitleImage.preserveAspect = true;
+        recordTitleImage.raycastTarget = false;
         var viewport = StudyArtRect(record, "RecordViewport", Vector2.zero, Vector2.one,
             new Vector2(30, 32), new Vector2(-30, -70));
         viewport.gameObject.AddComponent<RectMask2D>();
         var hit = viewport.gameObject.AddComponent<Image>(); hit.color = Color.clear;
-        var scroll = viewport.gameObject.AddComponent<ScrollRect>();
-        scroll.horizontal = false; scroll.movementType = ScrollRect.MovementType.Clamped; scroll.scrollSensitivity = 30;
-        var content = StudyArtRect(viewport, "RecordContent", new Vector2(0, 1), Vector2.one, Vector2.zero, Vector2.zero);
-        content.pivot = new Vector2(.5f, 1);
-        studyArtLog = content.gameObject.AddComponent<Text>();
-        studyArtLog.font = font; studyArtLog.fontSize = 19; studyArtLog.color = StudyInk;
-        studyArtLog.alignment = TextAnchor.UpperLeft;
-        studyArtLog.horizontalOverflow = HorizontalWrapMode.Wrap;
-        studyArtLog.verticalOverflow = VerticalWrapMode.Overflow;
-        studyArtLog.lineSpacing = 1.45f; studyArtLog.raycastTarget = false;
-        var fit = content.gameObject.AddComponent<ContentSizeFitter>();
-        fit.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-        scroll.viewport = viewport; scroll.content = content;
+        studyArtRecordScroll = viewport.gameObject.AddComponent<ScrollRect>();
+        studyArtRecordScroll.horizontal = false;
+        studyArtRecordScroll.movementType = ScrollRect.MovementType.Clamped;
+        studyArtRecordScroll.scrollSensitivity = 30;
+        studyArtRecordContent = StudyArtRect(viewport, "RecordContent", new Vector2(0, 1),
+            Vector2.one, Vector2.zero, Vector2.zero);
+        studyArtRecordContent.anchorMax = Vector2.one;
+        studyArtRecordContent.anchorMin = new Vector2(0, 1);
+        studyArtRecordContent.pivot = new Vector2(.5f, 1);
+        studyArtRecordScroll.viewport = viewport;
+        studyArtRecordScroll.content = studyArtRecordContent;
 
-        studyArtTurn = StudyArtText(studyArtPanel, "Turn", "", 18, Ink, Vector2.zero, new Vector2(1, 0), new Vector2(22, 172), new Vector2(-22, 205));
-        studyArtMessage = StudyArtText(studyArtPanel, "SaveStatus", "自动保存", 13, StudyGold, Vector2.zero, new Vector2(1, 0), new Vector2(22, 148), new Vector2(-22, 173));
+        var turn = StudyArtRect(studyArtPanel, "Turn", Vector2.zero, new Vector2(1, 0),
+            new Vector2(22, 155), new Vector2(-22, 205));
+        studyArtTurn = StudyArtText(turn, "FallbackTurn", "", 18, Ink, Vector2.zero,
+            Vector2.one, Vector2.zero, Vector2.zero);
+        studyArtTurnPrefix = StudyArtLabelImage(turn, "Prefix", "label-turn-prefix-v1",
+            new Vector2(.12f, .12f), new Vector2(.23f, .88f), Vector2.zero, Vector2.zero);
+        studyArtTurnNumber = StudyArtText(turn, "MoveNumber", "0", 21, Ink,
+            new Vector2(.23f, 0), new Vector2(.34f, 1), Vector2.zero, Vector2.zero);
+        studyArtTurnNumber.font = restoredMenuFont != null ? restoredMenuFont : font;
+        studyArtBlackTurnArt = StudyArtLabelImage(turn, "BlackTurn", "label-black-turn-v1",
+            new Vector2(.34f, .12f), new Vector2(.90f, .88f), Vector2.zero, Vector2.zero);
+        studyArtWhiteTurnArt = StudyArtLabelImage(turn, "WhiteTurn", "label-white-turn-v1",
+            new Vector2(.34f, .12f), new Vector2(.90f, .88f), Vector2.zero, Vector2.zero);
         var actions = StudyArtRect(studyArtPanel, "FiveActions", Vector2.zero, new Vector2(1, 0), new Vector2(22, 80), new Vector2(-22, 145));
         studyArtUndo = StudyArtAction(actions, "悔棋", Undo, 0);
         studyArtPass = StudyArtAction(actions, "停一手", HumanPass, 1);
@@ -174,9 +235,9 @@ public partial class GoGame
             new Vector2(.5f, 0), new Vector2(1, 0), new Vector2(4, 23), new Vector2(-22, 75));
         studyArtToggles = StudyArtRect(root, "CenteredToggles", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
         studyArtMovesLabel = StudyArtButton(studyArtToggles, "手数", () => { showMoveNums = !showMoveNums; boardSkin.Refresh(rules, showMoveNums, showCoords, showTerritory); RefreshStudyVisuals(); RefreshStudyArtUi(); },
-            new Vector2(0, .5f), Vector2.one, new Vector2(0, 5), Vector2.zero, true).GetComponentInChildren<Text>();
+            new Vector2(0, .5f), Vector2.one, new Vector2(0, 5), Vector2.zero, true).transform.Find("LabelArt").GetComponent<Image>();
         studyArtCoordsLabel = StudyArtButton(studyArtToggles, "坐标", () => { showCoords = !showCoords; boardSkin.Refresh(rules, showMoveNums, showCoords, showTerritory); RefreshStudyVisuals(); RefreshStudyArtUi(); },
-            Vector2.zero, new Vector2(1, .5f), Vector2.zero, new Vector2(0, -5), true).GetComponentInChildren<Text>();
+            Vector2.zero, new Vector2(1, .5f), Vector2.zero, new Vector2(0, -5), true).transform.Find("LabelArt").GetComponent<Image>();
         BuildStudyArtDialog(modalCanvasLayer.transform);
         root.SetAsFirstSibling();
         studyArtRoot.SetActive(false);
@@ -189,7 +250,6 @@ public partial class GoGame
     {
         var button = StudyArtButton(parent, label, action, new Vector2(index / 5f, 0),
             new Vector2((index + 1) / 5f, 1), new Vector2(2, 0), new Vector2(-2, 0));
-        button.GetComponentInChildren<Text>().fontSize = 20;
         return button;
     }
 
@@ -225,11 +285,16 @@ public partial class GoGame
         studyArtPanel.anchorMin = studyArtPanel.anchorMax = new Vector2(1, .5f);
         studyArtPanel.pivot = new Vector2(1, .5f);
         studyArtPanel.sizeDelta = new Vector2(panelWidth, panelHeight);
-        studyArtPanel.anchoredPosition = new Vector2(-margin, 0);
-        float gap = 82;
+        float gap = 68;
         float regionWidth = width - panelWidth - gap - 3 * margin;
         float boardPixels = Mathf.Min(height - 2 * margin, regionWidth);
         float boardCenterX = margin + regionWidth * .5f;
+        float initialClearance = width - margin - panelWidth - boardCenterX - boardPixels / 2;
+        // Bring the board and sidebar inward while reserving room for the center switches.
+        float inward = Mathf.Clamp((initialClearance - 128f) * .5f, 0f, 28f);
+        float sidebarInset = margin + inward;
+        boardCenterX += inward;
+        studyArtPanel.anchoredPosition = new Vector2(-sidebarInset, 0);
         float worldHeight = (boardSize + 1) * height / Mathf.Max(boardPixels, 1);
         cam.orthographicSize = worldHeight / 2;
         float worldWidth = worldHeight * cam.aspect;
@@ -239,7 +304,7 @@ public partial class GoGame
         studyArtToggles.pivot = new Vector2(.5f, .5f);
         studyArtToggles.sizeDelta = new Vector2(108, 208);
         float rightOfBoard = boardCenterX + boardPixels / 2;
-        float leftOfPanel = width - margin - panelWidth;
+        float leftOfPanel = width - sidebarInset - panelWidth;
         studyArtToggles.anchoredPosition = new Vector2((rightOfBoard + leftOfPanel) / 2, 0);
         var sprite = studyArtBackground.sprite;
         if (sprite != null)
@@ -251,12 +316,11 @@ public partial class GoGame
         studyArtDialogCard.anchorMin = studyArtDialogCard.anchorMax = new Vector2(1, .5f);
         studyArtDialogCard.pivot = new Vector2(.5f, .5f);
         studyArtDialogCard.sizeDelta = new Vector2(panelWidth - 24, Mathf.Min(panelHeight - 50, 550));
-        studyArtDialogCard.anchoredPosition = new Vector2(-margin - panelWidth / 2, 0);
+        studyArtDialogCard.anchoredPosition = new Vector2(-sidebarInset - panelWidth / 2, 0);
         studyArtDialogCard.localScale = Vector3.one;
         if (!studyArtWasActive || !Mathf.Approximately(studyArtLastAspect, width / height)) RefreshStudyArtUi();
         studyArtLastAspect = width / height;
         studyArtWasActive = true;
-        if (studyArtMessage != null) studyArtMessage.text = !string.IsNullOrEmpty(msgText.text) ? msgText.text : (studySaveStatusText != null ? studySaveStatusText.text : "自动保存");
     }
 
     void RefreshStudyArtUi()
@@ -264,24 +328,70 @@ public partial class GoGame
         if (studyArtRoot == null || rules == null) return;
         studyBlackCaptures.text = rules.Captures[GoRules.BLACK].ToString();
         studyWhiteCaptures.text = rules.Captures[GoRules.WHITE].ToString();
-        studyArtTurn.text = rules.Result ?? $"第 {rules.LoggedMoveCount} 手 · {(rules.Turn == GoRules.BLACK ? "黑方" : "白方")}行棋";
-        if (rules.Phase == GoPhase.Scoring && rules.Result == null) studyArtTurn.text = "数目阶段 · 点击棋子标记死活";
-        string nextLog = moveLogText != null ? moveLogText.text : "暂无落子";
-        bool changed = studyArtLog.text != nextLog;
-        studyArtLog.text = nextLog;
-        if (changed && StudyArtActive && studyArtRoot.activeInHierarchy)
-        {
-            Canvas.ForceUpdateCanvases();
-            studyArtLog.GetComponentInParent<ScrollRect>().verticalNormalizedPosition = 0;
-        }
-        studyArtMovesLabel.color = showMoveNums ? new Color(1, .83f, .47f) : Dim;
-        studyArtCoordsLabel.color = showCoords ? new Color(1, .83f, .47f) : Dim;
+        bool showingTurn = rules.Result == null && rules.Phase == GoPhase.Play;
+        studyArtTurn.gameObject.SetActive(!showingTurn);
+        studyArtTurnPrefix.gameObject.SetActive(showingTurn);
+        studyArtTurnNumber.gameObject.SetActive(showingTurn);
+        studyArtBlackTurnArt.gameObject.SetActive(showingTurn && rules.Turn == GoRules.BLACK);
+        studyArtWhiteTurnArt.gameObject.SetActive(showingTurn && rules.Turn == GoRules.WHITE);
+        if (showingTurn) studyArtTurnNumber.text = rules.LoggedMoveCount.ToString();
+        else studyArtTurn.text = rules.Result ?? "数目阶段 · 点击棋子标记死活";
+        RefreshStudyArtMoveLog();
+        studyArtMovesLabel.color = showMoveNums ? Color.white : new Color(.42f, .39f, .34f, .7f);
+        studyArtCoordsLabel.color = showCoords ? Color.white : new Color(.42f, .39f, .34f, .7f);
         bool playing = rules.Result == null && rules.Phase == GoPhase.Play;
         studyArtUndo.interactable = rules.LoggedMoveCount > 0;
         studyArtPass.interactable = playing;
         studyArtDraw.interactable = rules.Result == null;
         studyArtResign.interactable = rules.Result == null;
         studyArtScore.interactable = rules.Result == null;
+    }
+
+    void RefreshStudyArtMoveLog()
+    {
+        if (studyArtRecordContent == null) return;
+        int count = rules.LoggedMoveCount;
+        int signature = count;
+        unchecked
+        {
+            for (int i = 0; i < count; i++)
+            {
+                rules.GetLoggedMove(i, out int x, out int y, out int color, out bool pass);
+                signature = signature * 31 + x;
+                signature = signature * 31 + y;
+                signature = signature * 31 + color;
+                signature = signature * 31 + (pass ? 1 : 0);
+            }
+        }
+        if (signature == studyArtRecordSignature) return;
+        studyArtRecordSignature = signature;
+        for (int i = studyArtRecordContent.childCount - 1; i >= 0; i--)
+            Destroy(studyArtRecordContent.GetChild(i).gameObject);
+        studyArtRecordContent.sizeDelta = new Vector2(0, Mathf.Max(42, count * 36 + 12));
+        Font recordFont = restoredMenuFont != null ? restoredMenuFont : font;
+        for (int i = 0; i < count; i++)
+        {
+            if (!rules.GetLoggedMove(i, out int x, out int y, out int color, out bool pass)) continue;
+            var row = StudyArtRect(studyArtRecordContent, "Move_" + (i + 1),
+                new Vector2(0, 1), Vector2.one, new Vector2(0, -(i + 1) * 36 - 4),
+                new Vector2(0, -i * 36 - 4));
+            var center = StudyArtRect(row, "CenteredMove", new Vector2(.5f, .5f),
+                new Vector2(.5f, .5f), new Vector2(-125, -18), new Vector2(125, 18));
+            var number = StudyArtText(center, "MoveNumber", (i + 1).ToString("000"), 19,
+                StudyInk, Vector2.zero, new Vector2(0, 1), Vector2.zero, new Vector2(55, 0));
+            number.font = recordFont;
+            StudyArtStone(center, color == GoRules.BLACK, new Vector2(.32f, .5f), 29);
+            var coordinate = StudyArtText(center, "Coordinate",
+                pass ? "停一手" : $"（{ColLabel(x)}，{RowLabel(y)}）", 22, StudyInk,
+                new Vector2(.43f, 0), Vector2.one, Vector2.zero, Vector2.zero);
+            coordinate.font = recordFont;
+            coordinate.alignment = TextAnchor.MiddleLeft;
+        }
+        if (StudyArtActive && studyArtRoot.activeInHierarchy)
+        {
+            Canvas.ForceUpdateCanvases();
+            studyArtRecordScroll.verticalNormalizedPosition = 0;
+        }
     }
 
     void BuildStudyArtDialog(Transform parent)

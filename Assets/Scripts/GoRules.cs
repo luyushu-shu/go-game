@@ -270,6 +270,13 @@ public class GoRules
         return true;
     }
 
+    public void BeginScoring()
+    {
+        if (Phase != GoPhase.Play || Result != null) return;
+        Phase = GoPhase.Scoring;
+        Dead.Clear();
+    }
+
     public void ResumePlay()
     {
         if (Phase != GoPhase.Scoring) return;
