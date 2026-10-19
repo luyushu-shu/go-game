@@ -46,8 +46,20 @@ public partial class GoGame
         yield return null;
         if (studyArtRecordContent.childCount != 7) throw new Exception("Record rows did not refresh");
         OpenScorePopup();
+        if (string.IsNullOrEmpty(scoreArtOutcome.text) || !scoreArtOutcome.text.Contains("胜")
+            || scoreArtOutcome.text.Contains("方") || scoreArtOutcome.text.Contains(" "))
+            throw new Exception("Score preview did not show winner and margin");
+        if (scoreArtBlackStone.activeSelf || !scoreArtWhiteStone.activeSelf)
+            throw new Exception("White win did not select the white stone");
+        RefreshStudyScoreCard(20f, 10f);
+        if (!scoreArtBlackStone.activeSelf || scoreArtWhiteStone.activeSelf
+            || !scoreArtOutcome.text.StartsWith("黑胜"))
+            throw new Exception("Black win did not select the black stone");
+        ShowScoreDialog();
         if (!scoreDialog.activeSelf || rules.Phase != GoPhase.Play)
             throw new Exception("Score cannot open before two passes");
+        yield return null;
+        CaptureStudyFrame(Path.Combine(folder, "study-score-confirm.png"));
         CancelScoreDialog();
         if (rules.Phase != GoPhase.Play) throw new Exception("Cancel score changed play phase");
         // Exercise other supported desktop aspect ratios without touching the user's save.
@@ -66,6 +78,10 @@ public partial class GoGame
         ConfirmScoreDialog();
         if (rules.Phase != GoPhase.Over || string.IsNullOrEmpty(rules.Result))
             throw new Exception("Direct scoring did not finish an active game");
+        if (!scorePopup.activeSelf || scorePopupTitle.text != rules.Result)
+            throw new Exception("Result card did not display the winner");
+        yield return null;
+        CaptureStudyFrame(Path.Combine(folder, "study-result.png"));
         inStudyMode = false;
         ShowMainMenu(); UpdateStudyArtLayout();
         if (studyArtRoot.activeSelf || !sceneBackgroundLayer.activeSelf) throw new Exception("Menu restoration failed");

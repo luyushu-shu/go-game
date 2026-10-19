@@ -258,6 +258,107 @@ public partial class GoGame
 #endif
     }
 
+    Text scoreArtOutcome;
+    GameObject scoreArtBlackStone, scoreArtWhiteStone;
+
+    void StudyArtModalCard(Transform card, string asset, Vector2 size)
+    {
+        var rect = (RectTransform)card;
+        rect.sizeDelta = size;
+        var image = card.GetComponent<Image>();
+        image.sprite = StudyArtSprite(asset);
+        image.type = Image.Type.Simple;
+        image.color = Color.white;
+        image.raycastTarget = true;
+    }
+
+    Text StudyArtModalText(Transform parent, string name, string value, int size,
+        Vector2 min, Vector2 max)
+    {
+        var label = StudyArtText(parent, name, value, size, StudyInk, min, max,
+            Vector2.zero, Vector2.zero);
+        label.font = restoredMenuFont != null ? restoredMenuFont : font;
+        return label;
+    }
+
+    Button StudyArtModalButton(Transform card, string name, UnityAction action,
+        Vector2 min, Vector2 max)
+    {
+        var rect = StudyArtRect(card, "ModalButton_" + name, min, max,
+            Vector2.zero, Vector2.zero);
+        var image = StudyArtImage(rect, "button-parchment-v1", true);
+        var button = rect.gameObject.AddComponent<Button>();
+        button.targetGraphic = image;
+        var colors = button.colors;
+        colors.highlightedColor = new Color(1f, .92f, .72f);
+        colors.pressedColor = new Color(.78f, .65f, .44f);
+        button.colors = colors;
+        button.onClick.AddListener(action);
+        string paintedLabel = name == "确认数目" ? "label-confirm-score-v1"
+            : name == "取消" ? "label-cancel-score-v1"
+            : name == "返回主界面" ? "label-result-home-v1"
+            : name == "再来一局" ? "label-result-replay-v1"
+            : name == "保存棋谱" ? "label-result-save-v1" : null;
+        if (paintedLabel != null)
+        {
+            bool resultButton = name == "返回主界面" || name == "再来一局" || name == "保存棋谱";
+            int sideInset = resultButton ? 32 : 18;
+            int verticalInset = resultButton ? 15 : 10;
+            var labelRect = StudyArtRect(rect, "LabelArt", Vector2.zero, Vector2.one,
+                new Vector2(sideInset, verticalInset), new Vector2(-sideInset, -verticalInset));
+            var labelImage = labelRect.gameObject.AddComponent<Image>();
+            labelImage.sprite = StudyArtSprite(paintedLabel);
+            labelImage.preserveAspect = true;
+            labelImage.raycastTarget = false;
+        }
+        else
+        {
+            var label = StudyArtModalText(rect, "Label", name, 22, Vector2.zero, Vector2.one);
+            label.fontStyle = FontStyle.Bold;
+        }
+        return button;
+    }
+
+    void BuildStudyScoreCard(Transform card)
+    {
+        StudyArtModalCard(card, "score-confirm-card-v1", new Vector2(560, 260));
+        StudyArtStone(card, true, new Vector2(.27f, .585f), 40);
+        StudyArtStone(card, false, new Vector2(.27f, .585f), 40);
+        scoreArtBlackStone = card.Find("BlackStone").gameObject;
+        scoreArtWhiteStone = card.Find("WhiteStone").gameObject;
+        scoreArtOutcome = StudyArtModalText(card, "ScoreOutcome", "", 37,
+            new Vector2(.34f, .43f), new Vector2(.79f, .74f));
+        scoreArtOutcome.fontStyle = FontStyle.Bold;
+        StudyArtModalButton(card, "确认数目", ConfirmScoreDialog,
+            new Vector2(.16f, .13f), new Vector2(.48f, .33f));
+        StudyArtModalButton(card, "取消", CancelScoreDialog,
+            new Vector2(.52f, .13f), new Vector2(.84f, .33f));
+    }
+
+    void RefreshStudyScoreCard(float black, float white)
+    {
+        scoreArtOutcome.text = GoResultFormatter.FormatScore(black, white)
+            .Replace("方", "").Replace(" ", "");
+        scoreArtBlackStone.SetActive(black > white);
+        scoreArtWhiteStone.SetActive(white >= black);
+    }
+
+    void BuildStudyResultCard(Transform card)
+    {
+        StudyArtModalCard(card, "result-card-v1", new Vector2(440, 565));
+        StudyArtModalText(card, "ResultKicker", "对局结束", 21,
+            new Vector2(.30f, .73f), new Vector2(.70f, .81f));
+        scorePopupTitle = StudyArtModalText(card, "ResultTitle", "", 34,
+            new Vector2(.12f, .58f), new Vector2(.88f, .72f));
+        scorePopupTitle.fontStyle = FontStyle.Bold;
+        StudyArtModalButton(card, "返回主界面", ScorePopupReturnHome,
+            new Vector2(.17f, .44f), new Vector2(.83f, .54f));
+        StudyArtModalButton(card, "再来一局", ScorePopupReplay,
+            new Vector2(.17f, .31f), new Vector2(.83f, .41f));
+        StudyArtModalButton(card, "保存棋谱", ScorePopupSaveKifu,
+            new Vector2(.17f, .18f), new Vector2(.83f, .28f));
+    }
+
     Button StudyArtAction(Transform parent, string label, UnityAction action, int index)
     {
         var button = StudyArtButton(parent, label, action, new Vector2(index / 5f, 0),

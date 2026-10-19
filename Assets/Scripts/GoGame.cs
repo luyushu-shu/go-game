@@ -112,7 +112,7 @@ public partial class GoGame : MonoBehaviour
     GoClockController clockController;
     GoClockView blackClockView, whiteClockView;
     GameObject resignDialog, scoreDialog, timeoutDialog;
-    Text resignDialogResult, scoreDialogDetails, timeoutDialogResult;
+    Text resignDialogResult, timeoutDialogResult;
     Text studySaveStatusText;
     bool aiBusy = false;
     int gameEpoch;
@@ -1313,7 +1313,7 @@ public partial class GoGame : MonoBehaviour
         var home = MakeButton(pt, "返回主界面", 42f, ReturnToMainMenu);
         homeBtnLabel = home.GetComponentInChildren<Text>();
 
-        BuildScorePopup(canvas.transform);
+        BuildScorePopup(modalCanvasLayer.transform);
         BuildKifuForm(canvas.transform);
         BuildStudyBoardUi(canvas.transform);
         BuildStudyArtUi(canvas.transform, pgo);
@@ -1724,41 +1724,8 @@ public partial class GoGame : MonoBehaviour
 
     void BuildScorePopup(Transform canvasRoot)
     {
-        scorePopup = new GameObject("ScorePopup");
-        scorePopup.transform.SetParent(canvasRoot, false);
-        var overlay = scorePopup.AddComponent<Image>();
-        overlay.color = new Color(0.05f, 0.04f, 0.03f, 0.72f);
-        overlay.raycastTarget = true;
-        var ort = scorePopup.GetComponent<RectTransform>();
-        ort.anchorMin = Vector2.zero;
-        ort.anchorMax = Vector2.one;
-        ort.offsetMin = ort.offsetMax = Vector2.zero;
-
-        var card = new GameObject("Card");
-        card.transform.SetParent(scorePopup.transform, false);
-        var cimg = card.AddComponent<Image>();
-        cimg.color = new Color(0.16f, 0.13f, 0.09f, 1f);
-        var crt = card.GetComponent<RectTransform>();
-        crt.anchorMin = crt.anchorMax = new Vector2(0.5f, 0.5f);
-        crt.sizeDelta = new Vector2(460f, 280f);
-
-        var vlg = card.AddComponent<VerticalLayoutGroup>();
-        vlg.padding = new RectOffset(28, 28, 28, 24);
-        vlg.spacing = 16f;
-        vlg.childAlignment = TextAnchor.MiddleCenter;
-        vlg.childControlWidth = true;
-        vlg.childControlHeight = true;
-        vlg.childForceExpandWidth = true;
-        vlg.childForceExpandHeight = false;
-
-        scorePopupTitle = MakeText(card.transform, "", 26, Ink, TextAnchor.MiddleCenter);
-        var titleLe = scorePopupTitle.gameObject.AddComponent<LayoutElement>();
-        titleLe.preferredHeight = 72f;
-        titleLe.minHeight = 48f;
-
-        MakeButton(card.transform, "返回主界面", 44f, ScorePopupReturnHome);
-        MakeButton(card.transform, "再来一局", 44f, ScorePopupReplay);
-        MakeButton(card.transform, "保存棋谱", 44f, ScorePopupSaveKifu);
+        scorePopup = BuildDialogRoot(canvasRoot, "ScorePopup", out Transform card);
+        BuildStudyResultCard(card);
         scorePopup.SetActive(false);
     }
 
@@ -1780,21 +1747,8 @@ public partial class GoGame : MonoBehaviour
         MakeButton(resignButtons, "取消", 44f, CancelResignDialog);
         resignDialog.SetActive(false);
 
-        scoreDialog = BuildDialogRoot(canvasRoot, "ScoreDialog", out Transform scoreCard);
-        var scoreLayout = scoreCard.gameObject.AddComponent<VerticalLayoutGroup>();
-        scoreLayout.padding = new RectOffset(28, 28, 24, 22);
-        scoreLayout.spacing = 10f;
-        scoreLayout.childAlignment = TextAnchor.MiddleCenter;
-        scoreLayout.childControlWidth = true;
-        scoreLayout.childControlHeight = true;
-        scoreLayout.childForceExpandWidth = true;
-        scoreLayout.childForceExpandHeight = false;
-        MakeText(scoreCard, "确认数目", 26, Ink, TextAnchor.MiddleCenter);
-        scoreDialogDetails = MakeText(scoreCard, "", 16, Ink, TextAnchor.MiddleCenter);
-        scoreDialogDetails.supportRichText = false;
-        var scoreButtons = MakeRow(scoreCard, 44f);
-        MakeButton(scoreButtons, "确认数目", 44f, ConfirmScoreDialog);
-        MakeButton(scoreButtons, "取消", 44f, CancelScoreDialog);
+        scoreDialog = BuildDialogRoot(modalCanvasLayer.transform, "ScoreDialog", out Transform scoreCard);
+        BuildStudyScoreCard(scoreCard);
         scoreDialog.SetActive(false);
 
         timeoutDialog = BuildDialogRoot(canvasRoot, "TimeoutDialog", out Transform timeoutCard);
@@ -1933,13 +1887,8 @@ public partial class GoGame : MonoBehaviour
         if (scoreDialog == null || reviewingKifu || inMenu || rules == null
             || rules.Result != null) return;
         rules.ComputeScore(out float blackScore, out float whiteScore,
-            out int blackStones, out int blackTerritory,
-            out int whiteStones, out int whiteTerritory);
-        float difference = Mathf.Abs(blackScore - whiteScore);
-        scoreDialogDetails.text =
-            $"黑方：{blackScore:0.0} 目（棋子 {blackStones} · 实地 {blackTerritory}）\n" +
-            $"白方：{whiteScore:0.0} 目（棋子 {whiteStones} · 实地 {whiteTerritory} · 贴目 {rules.Komi:0.0}）\n" +
-            $"差值：{difference:0.0} 目";
+            out _, out _, out _, out _);
+        RefreshStudyScoreCard(blackScore, whiteScore);
         scoreDialog.SetActive(true);
         UpdateClockPauseState();
     }
