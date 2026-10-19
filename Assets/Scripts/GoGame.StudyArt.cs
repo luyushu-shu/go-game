@@ -180,10 +180,20 @@ public partial class GoGame
             new Vector2(20, -125), new Vector2(-20, -20));
         StudyArtStone(players, true, new Vector2(0.25f, 0.70f), 58);
         StudyArtStone(players, false, new Vector2(0.75f, 0.70f), 58);
-        studyBlackCaptures = StudyArtText(players, "BlackCaptures", "0", 26, Ink, new Vector2(0, 0), new Vector2(.4f, .38f), Vector2.zero, Vector2.zero);
-        StudyArtLabelImage(players, "CapturesTitleArt", "label-captures-v1",
-            new Vector2(.4f, 0), new Vector2(.6f, .38f), Vector2.zero, Vector2.zero);
-        studyWhiteCaptures = StudyArtText(players, "WhiteCaptures", "0", 26, Ink, new Vector2(.6f, 0), new Vector2(1, .38f), Vector2.zero, Vector2.zero);
+        // A common baseline keeps both capture counts optically level with the painted label.
+        Font studyNumerals = Font.CreateDynamicFontFromOSFont(
+            new[] { "Palatino Linotype", "Georgia", "Cambria", "Times New Roman" }, 28);
+        if (studyNumerals == null) studyNumerals = restoredMenuFont != null ? restoredMenuFont : font;
+        studyBlackCaptures = StudyArtText(players, "BlackCaptures", "0", 35, Ink,
+            new Vector2(.13f, 0), new Vector2(.37f, .38f), Vector2.zero, Vector2.zero);
+        studyBlackCaptures.font = studyNumerals;
+        studyBlackCaptures.fontStyle = FontStyle.Bold;
+        StudyArtLabelImage(players, "CapturesTitleArt", "label-captures-v2",
+            new Vector2(.4f, 0), new Vector2(.6f, .38f), new Vector2(0, -4), new Vector2(0, -4));
+        studyWhiteCaptures = StudyArtText(players, "WhiteCaptures", "0", 35, Ink,
+            new Vector2(.63f, 0), new Vector2(.87f, .38f), Vector2.zero, Vector2.zero);
+        studyWhiteCaptures.font = studyNumerals;
+        studyWhiteCaptures.fontStyle = FontStyle.Bold;
 
         var record = StudyArtRect(studyArtPanel, "ParchmentRecord", Vector2.zero, Vector2.one,
             new Vector2(22, 207), new Vector2(-22, -130));
@@ -215,14 +225,16 @@ public partial class GoGame
         studyArtTurn = StudyArtText(turn, "FallbackTurn", "", 18, Ink, Vector2.zero,
             Vector2.one, Vector2.zero, Vector2.zero);
         studyArtTurnPrefix = StudyArtLabelImage(turn, "Prefix", "label-turn-prefix-v1",
-            new Vector2(.12f, .12f), new Vector2(.23f, .88f), Vector2.zero, Vector2.zero);
+            new Vector2(.5f, .12f), new Vector2(.5f, .88f), new Vector2(-120, 0), new Vector2(-82, 0));
         studyArtTurnNumber = StudyArtText(turn, "MoveNumber", "0", 21, Ink,
-            new Vector2(.23f, 0), new Vector2(.34f, 1), Vector2.zero, Vector2.zero);
-        studyArtTurnNumber.font = restoredMenuFont != null ? restoredMenuFont : font;
+            new Vector2(.5f, 0), new Vector2(.5f, 1), new Vector2(-80, 0), new Vector2(-34, 0));
+        studyArtTurnNumber.font = studyNumerals;
+        studyArtTurnNumber.fontStyle = FontStyle.Bold;
+        studyArtTurnNumber.fontSize = 29;
         studyArtBlackTurnArt = StudyArtLabelImage(turn, "BlackTurn", "label-black-turn-v1",
-            new Vector2(.34f, .12f), new Vector2(.90f, .88f), Vector2.zero, Vector2.zero);
+            new Vector2(.5f, .12f), new Vector2(.5f, .88f), new Vector2(-32, 0), new Vector2(110, 0));
         studyArtWhiteTurnArt = StudyArtLabelImage(turn, "WhiteTurn", "label-white-turn-v1",
-            new Vector2(.34f, .12f), new Vector2(.90f, .88f), Vector2.zero, Vector2.zero);
+            new Vector2(.5f, .12f), new Vector2(.5f, .88f), new Vector2(-32, 0), new Vector2(110, 0));
         var actions = StudyArtRect(studyArtPanel, "FiveActions", Vector2.zero, new Vector2(1, 0), new Vector2(22, 80), new Vector2(-22, 145));
         studyArtUndo = StudyArtAction(actions, "悔棋", Undo, 0);
         studyArtPass = StudyArtAction(actions, "停一手", HumanPass, 1);
@@ -337,8 +349,8 @@ public partial class GoGame
         if (showingTurn) studyArtTurnNumber.text = rules.LoggedMoveCount.ToString();
         else studyArtTurn.text = rules.Result ?? "数目阶段 · 点击棋子标记死活";
         RefreshStudyArtMoveLog();
-        studyArtMovesLabel.color = showMoveNums ? Color.white : new Color(.42f, .39f, .34f, .7f);
-        studyArtCoordsLabel.color = showCoords ? Color.white : new Color(.42f, .39f, .34f, .7f);
+        studyArtMovesLabel.color = showMoveNums ? Color.white : new Color(.78f, .74f, .67f, 1f);
+        studyArtCoordsLabel.color = showCoords ? Color.white : new Color(.78f, .74f, .67f, 1f);
         bool playing = rules.Result == null && rules.Phase == GoPhase.Play;
         studyArtUndo.interactable = rules.LoggedMoveCount > 0;
         studyArtPass.interactable = playing;
