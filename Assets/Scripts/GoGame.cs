@@ -112,7 +112,7 @@ public partial class GoGame : MonoBehaviour
     GoClockController clockController;
     GoClockView blackClockView, whiteClockView;
     GameObject resignDialog, scoreDialog, timeoutDialog;
-    Text resignDialogResult, timeoutDialogResult;
+    Text timeoutDialogResult;
     Text studySaveStatusText;
     bool aiBusy = false;
     int gameEpoch;
@@ -1731,20 +1731,8 @@ public partial class GoGame : MonoBehaviour
 
     void BuildTerminalDialogs(Transform canvasRoot)
     {
-        resignDialog = BuildDialogRoot(canvasRoot, "ResignDialog", out Transform resignCard);
-        var resignLayout = resignCard.gameObject.AddComponent<VerticalLayoutGroup>();
-        resignLayout.padding = new RectOffset(28, 28, 24, 22);
-        resignLayout.spacing = 10f;
-        resignLayout.childAlignment = TextAnchor.MiddleCenter;
-        resignLayout.childControlWidth = true;
-        resignLayout.childControlHeight = true;
-        resignLayout.childForceExpandWidth = true;
-        resignLayout.childForceExpandHeight = false;
-        MakeText(resignCard, "确认认输？", 26, Ink, TextAnchor.MiddleCenter);
-        resignDialogResult = MakeText(resignCard, "", 18, Accent, TextAnchor.MiddleCenter);
-        var resignButtons = MakeRow(resignCard, 44f);
-        MakeButton(resignButtons, "确认认输", 44f, ConfirmResignDialog);
-        MakeButton(resignButtons, "取消", 44f, CancelResignDialog);
+        resignDialog = BuildDialogRoot(modalCanvasLayer.transform, "ResignDialog", out Transform resignCard);
+        BuildStudyResignCard(resignCard);
         resignDialog.SetActive(false);
 
         scoreDialog = BuildDialogRoot(modalCanvasLayer.transform, "ScoreDialog", out Transform scoreCard);
@@ -1858,8 +1846,6 @@ public partial class GoGame : MonoBehaviour
     {
         if (resignDialog == null || reviewingKifu || inMenu || rules == null
             || rules.Result != null || rules.Phase != GoPhase.Play) return;
-        int resignColor = rules.Turn;
-        resignDialogResult.text = "本局将记录为：\n" + GoResultFormatter.FormatResign(resignColor);
         resignDialog.SetActive(true);
         UpdateClockPauseState();
     }
@@ -1966,7 +1952,10 @@ public partial class GoGame : MonoBehaviour
         StopPlayClock();
         audioManager?.PlaySfx("game_end");
         lastResultLine = title;
-        scorePopupTitle.text = title;
+        bool draw = title == "双方和棋" || title == "和棋";
+        scorePopupTitle.text = draw ? "和棋" : title;
+        scorePopupTitle.gameObject.SetActive(!draw);
+        studyResultDrawArt.gameObject.SetActive(draw);
         scorePopup.SetActive(true);
         if (kifuForm != null) kifuForm.SetActive(false);
     }

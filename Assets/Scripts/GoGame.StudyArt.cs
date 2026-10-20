@@ -259,6 +259,7 @@ public partial class GoGame
     }
 
     Text scoreArtOutcome;
+    Image studyResultDrawArt;
     GameObject scoreArtBlackStone, scoreArtWhiteStone;
 
     void StudyArtModalCard(Transform card, string asset, Vector2 size)
@@ -282,11 +283,12 @@ public partial class GoGame
     }
 
     Button StudyArtModalButton(Transform card, string name, UnityAction action,
-        Vector2 min, Vector2 max)
+        Vector2 min, Vector2 max, bool resignStyle = false)
     {
         var rect = StudyArtRect(card, "ModalButton_" + name, min, max,
             Vector2.zero, Vector2.zero);
-        var image = StudyArtImage(rect, "button-parchment-v1", true);
+        var image = StudyArtImage(rect, resignStyle ? "button-resign-parchment-v1" : "button-parchment-v1", true);
+        if (resignStyle) image.type = Image.Type.Simple;
         var button = rect.gameObject.AddComponent<Button>();
         button.targetGraphic = image;
         var colors = button.colors;
@@ -295,7 +297,8 @@ public partial class GoGame
         button.colors = colors;
         button.onClick.AddListener(action);
         string paintedLabel = name == "确认数目" ? "label-confirm-score-v1"
-            : name == "取消" ? "label-cancel-score-v1"
+            : name == "认输" ? "label-modal-resign-v1"
+            : name == "取消" ? (resignStyle ? "label-modal-resign-cancel-v1" : "label-cancel-score-v1")
             : name == "返回主界面" ? "label-result-home-v1"
             : name == "再来一局" ? "label-result-replay-v1"
             : name == "保存棋谱" ? "label-result-save-v1" : null;
@@ -303,7 +306,7 @@ public partial class GoGame
         {
             bool resultButton = name == "返回主界面" || name == "再来一局" || name == "保存棋谱";
             int sideInset = resultButton ? 32 : 18;
-            int verticalInset = resultButton ? 15 : 10;
+            int verticalInset = resignStyle ? 12 : (resultButton ? 15 : 10);
             var labelRect = StudyArtRect(rect, "LabelArt", Vector2.zero, Vector2.one,
                 new Vector2(sideInset, verticalInset), new Vector2(-sideInset, -verticalInset));
             var labelImage = labelRect.gameObject.AddComponent<Image>();
@@ -343,11 +346,25 @@ public partial class GoGame
         scoreArtWhiteStone.SetActive(white >= black);
     }
 
+    void BuildStudyResignCard(Transform card)
+    {
+        StudyArtModalCard(card, "resign-card-v1", new Vector2(560, 260));
+        StudyArtLabelImage(card, "ResignTitleArt", "label-modal-resign-v1",
+            new Vector2(.40f, .49f), new Vector2(.60f, .73f), Vector2.zero, Vector2.zero);
+        StudyArtModalButton(card, "认输", ConfirmResignDialog,
+            new Vector2(.16f, .13f), new Vector2(.48f, .33f), true);
+        StudyArtModalButton(card, "取消", CancelResignDialog,
+            new Vector2(.52f, .13f), new Vector2(.84f, .33f), true);
+    }
+
     void BuildStudyResultCard(Transform card)
     {
         StudyArtModalCard(card, "result-card-v1", new Vector2(440, 565));
-        StudyArtModalText(card, "ResultKicker", "对局结束", 21,
-            new Vector2(.30f, .73f), new Vector2(.70f, .81f));
+        StudyArtLabelImage(card, "ResultKickerArt", "label-game-over-v1",
+            new Vector2(.30f, .74f), new Vector2(.70f, .80f), Vector2.zero, Vector2.zero);
+        studyResultDrawArt = StudyArtLabelImage(card, "DrawResultArt", "label-result-draw-v1",
+            new Vector2(.36f, .59f), new Vector2(.64f, .71f), Vector2.zero, Vector2.zero);
+        studyResultDrawArt.gameObject.SetActive(false);
         scorePopupTitle = StudyArtModalText(card, "ResultTitle", "", 34,
             new Vector2(.12f, .58f), new Vector2(.88f, .72f));
         scorePopupTitle.fontStyle = FontStyle.Bold;

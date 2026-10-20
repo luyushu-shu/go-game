@@ -45,6 +45,12 @@ public partial class GoGame
         if (rules.LoggedMoveCount != 7) throw new Exception("Undo failed");
         yield return null;
         if (studyArtRecordContent.childCount != 7) throw new Exception("Record rows did not refresh");
+        ShowResignDialog();
+        if (!resignDialog.activeSelf) throw new Exception("Resign card did not open");
+        yield return null;
+        CaptureStudyFrame(Path.Combine(folder, "study-resign.png"));
+        CancelResignDialog();
+        if (rules.Result != null || resignDialog.activeSelf) throw new Exception("Resign cancel changed game");
         OpenScorePopup();
         if (string.IsNullOrEmpty(scoreArtOutcome.text) || !scoreArtOutcome.text.Contains("胜")
             || scoreArtOutcome.text.Contains("方") || scoreArtOutcome.text.Contains(" "))
@@ -71,6 +77,12 @@ public partial class GoGame
         }
         rules.AgreeDraw();
         if (rules.Phase != GoPhase.Over || rules.Result != "双方和棋") throw new Exception("Draw failed");
+        ShowResultPopup(rules.Result);
+        if (scorePopupTitle.text != "和棋" || scorePopupTitle.gameObject.activeSelf || !studyResultDrawArt.gameObject.activeSelf)
+            throw new Exception("Draw card did not show the painted draw label");
+        yield return null;
+        CaptureStudyFrame(Path.Combine(folder, "study-draw-result.png"));
+        HideScorePopup();
         rules = new GoRules(19);
         rules.Play(3, 3, out _);
         Refresh();
@@ -82,6 +94,13 @@ public partial class GoGame
             throw new Exception("Result card did not display the winner");
         yield return null;
         CaptureStudyFrame(Path.Combine(folder, "study-result.png"));
+        HideScorePopup();
+        rules = new GoRules(19);
+        Refresh();
+        ShowResignDialog();
+        ConfirmResignDialog();
+        if (rules.Phase != GoPhase.Over || string.IsNullOrEmpty(rules.Result) || resignDialog.activeSelf)
+            throw new Exception("Resign button failed to finish the game");
         inStudyMode = false;
         ShowMainMenu(); UpdateStudyArtLayout();
         if (studyArtRoot.activeSelf || !sceneBackgroundLayer.activeSelf) throw new Exception("Menu restoration failed");
