@@ -476,6 +476,7 @@ public partial class GoGame : MonoBehaviour
         if (rules == null || rules.Result != null) return;
         InvalidateAiTurn();
         rules.FinishByTimeout(loserColor);
+        RefreshAiArtClock();
         StopPlayClock();
         SaveTerminalDraft();
         Refresh();
@@ -775,8 +776,10 @@ public partial class GoGame : MonoBehaviour
         if (Screen.width != lastResponsiveWidth || Screen.height != lastResponsiveHeight)
             ApplyResponsiveLayout();
         UpdateStudyArtLayout();
+        UpdateAiArtLayout();
         UpdateClockPauseState();
         clockController?.Tick(Time.unscaledDeltaTime);
+        RefreshAiArtClock();
         if (inMenu)
         {
             boardSkin?.ShowHoverCoordinate(0, 0, false);
@@ -1320,6 +1323,7 @@ public partial class GoGame : MonoBehaviour
         BuildKifuForm(canvas.transform);
         BuildStudyBoardUi(canvas.transform);
         BuildStudyArtUi(canvas.transform, pgo);
+        BuildAiArtUi(canvas.transform);
     }
 
     void BuildClockUi(Transform parent)
@@ -1857,7 +1861,7 @@ public partial class GoGame : MonoBehaviour
     {
         if (rules == null || rules.Result != null) return;
         InvalidateAiTurn();
-        rules.ResignBy(rules.Turn);
+        rules.ResignBy(vsAI ? humanColor : rules.Turn);
         if (resignDialog != null) resignDialog.SetActive(false);
         StopPlayClock();
         SaveTerminalDraft();
@@ -2235,7 +2239,7 @@ public partial class GoGame : MonoBehaviour
         if (boardSkin != null)
         {
             boardSkin.SetToolbarState(showMoveNums, showCoords, showTerritory);
-            boardSkin.SetToolbarVisible(BoardOverlayOn && !StudyArtActive);
+            boardSkin.SetToolbarVisible(BoardOverlayOn && !StudyArtActive && !AiArtActive);
         }
     }
 
@@ -5107,6 +5111,7 @@ public partial class GoGame : MonoBehaviour
         UpdateBoardMarksVisuals();
         SyncCommentModule();
         RefreshStudyArtUi();
+        RefreshAiArtUi();
 
         if (reviewingKifu)
         {

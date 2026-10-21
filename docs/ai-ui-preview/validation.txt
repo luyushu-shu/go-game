@@ -1,0 +1,1 @@
+PASS: AI art runtime resources; board/bowl/lid/sidebar bounds at desktop aspect ratios; 9/13/19 boards; human black/white badges and capture mapping; paired record; timer/byoyomi; modal clock pause; undo; coordinate/move toggles; judgment/draw/resign/score dialogs; study/menu restoration.

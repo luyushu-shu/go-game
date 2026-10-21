@@ -1,0 +1,62 @@
+{
+  "generationMode": "built-in image_gen",
+  "status": "Integrated in GoGame.AiArt.cs; runtime board, side mapping, captures, clocks, move log and actions.",
+  "newAssets": [
+    {
+      "file": "players-card-v1.png",
+      "prompt": "Use case: stylized-concept. A FINAL PRODUCTION GAME UI sprite, highly finished realistic rendered materials and precise edges, NOT a sketch, NOT watercolor, NOT a concept drawing. The references are the ACTUAL game art: pale wood study tabletop with folding fan, realistic walnut Go bowl, and existing wood-and-gold parchment button. Match their realistic surface detail, restrained Chinese scholar aesthetic, warm light from upper left, dark walnut and narrow antique brass edging, ivory fibers, celadon ceramic. Only generate the single requested isolated component. Straight-on orthographic view, genuinely transparent background, generous transparent exterior margin. No surrounding scene, no text or letters, no watermark, no game stone badges.\nSubject: One wide rectangular ivory parchment PLAYER INFORMATION CARD, width:height 1.45:1, fine aged gold double-line outline, gently chamfered ornamental corners, slim muted celadon inner keyline. Tiny ink bamboo sprig confined upper left corner; very faint gray-green mountain wash along bottom edge only. All main interior entirely empty clear paper, so two circular avatars on same row and runtime text can be overlaid. No avatar placeholders, circles, dividers, stones, labels or numerals."
+    },
+    {
+      "file": "avatar-player-ink-profile-v5.png",
+      "prompt": "Use case: stylized-concept. A single refined CHINESE INK-WASH SIDE PROFILE AVATAR for a Go game, standalone portrait sprite, transparent background, square canvas.\nSubject: anonymous adult Chinese scholar in elegant muted blue-gray and ivory hanfu, traditional compact dark topknot. TRUE 90-degree SIDE PROFILE facing RIGHT, show only one side contour of the head, one ear, one shoulder forward, visible elegant forehead–nose–lips–chin silhouette. Clearly a SIDE VIEW, not front-facing, not rear-facing, not three-quarter. Restrained poetic sumi-e / Chinese literati brushwork, soft pale gray face wash, dark ink hair, natural layered robe folds, a few dry-brush accents. Face is an understated ink silhouette with only a faint single brush mark for a downcast eye and simple fine outline for nose and mouth, NO realistic skin, NO photographic likeness, NO detailed individual facial features, NO blank faceless mask, NO black void covering face. Quiet thoughtful expression implied through lowered gaze. Compact bust composition, whole head safely within imaginary centered circular avatar footprint, light airy ink wash fading at shoulder edges, palette ink black, pale ivory, blue-gray with a whisper of celadon. No background scenery, no paper sheet, NO circular frame or border, no badges, no stones, no text, no watermark. Genuinely transparent exterior with clear margins. Polished final ink illustration."
+    },
+    {
+      "file": "avatar-computer-ink-sage-v3.png",
+      "prompt": "Use case: stylized-concept. A single standalone Chinese ink-wash avatar for the COMPUTER opponent in an elegant Go game. A symbolic otherworldly Go master / reclusive sage, serene and enigmatic, PURE SIDE PROFILE FACING LEFT. Head nose and chin must point LEFT. NOT a robot, no machinery. Anonymous mature scholar hermit in loose ivory and pale gray-green robes, hair swept into a small high knot with a simple hairpin, a very subtle few wisps of pale ink beard optional. Elevated but understated scholarly presence, thoughtful lowered gaze and quiet confidence. A poetic impression of a master beyond worldly distractions, conveyed by spacious pale ink haze and very faint distant mountain-like brush washes immediately behind shoulders. Bust portrait with complete head and upper shoulders comfortably inside imaginary centered circular footprint. Finest Chinese literati ink-wash, expressive dry-brush dark hair, restrained delicate profile outline, facial features implied by minimal pale brush marks, no realistic skin or detailed identifiable facial likeness. Natural head shape, not blank mask, not black faceless void. Palette ink black, pale warm ivory, soft celadon-gray. Low ornament, light airy shoulder edges fading to real transparency. NO frame, NO ring, NO border, NO badge, NO stones, NO labels, NO text, NO watermark, NO paper sheet or square background. Transparent background, square canvas. Match a refined ink side-profile scholar player avatar facing right, forming a complementary opposite-facing pair."
+    },
+    {
+      "file": "avatar-frame-v1.png",
+      "prompt": "Use case: stylized-concept. Final isolated game UI art component, transparent background, square canvas, centered full silhouette with ample clear margin. No text, letters, numbers, watermark, stones or UI labels. Subject: ONLY ONE EMPTY circular avatar FRAME, a refined narrow ring of realistic polished warm walnut wood with two very narrow antique brass edging lines, matching the actual game material references. Strict straight-on flat orthographic view, geometrically circular, restrained craftsmanship with fine realistic wood grain and soft upper-left light. Ring thickness approximately 5 percent of outer diameter, large completely EMPTY TRANSPARENT circular hole at center, transparent exterior. Absolutely NO portrait, NO colored disc, NO interior fill, NO background inside ring, NO badge. Frame isolated for placing over separately rendered ink-wash portraits. High quality realistic material render, not painted paper."
+    },
+    {
+      "file": "button-analysis-v1.png",
+      "prompt": "Use case: stylized-concept. A FINAL PRODUCTION GAME UI sprite, highly finished realistic rendered materials and precise edges, NOT a sketch, NOT watercolor, NOT a concept drawing. The references are the ACTUAL game art: pale wood study tabletop with folding fan, realistic walnut Go bowl, and existing wood-and-gold parchment button. Match their realistic surface detail, restrained Chinese scholar aesthetic, warm light from upper left, dark walnut and narrow antique brass edging, ivory fibers, celadon ceramic. Only generate the single requested isolated component. Straight-on orthographic view, genuinely transparent background, generous transparent exterior margin. No surrounding scene, no text or letters, no watermark, no game stone badges.\nSubject: One wide horizontal rectangular EMPTY analysis action button, width:height 4.3:1, muted sage-celadon green center with subtle paper-like finish, narrow warm walnut bevel outside, fine antique gold double-line border, tiny precise antique brass corner ornaments in all four corners. Subtle raised depth, corners gently clipped. Broad middle clear and blank for a separately rendered Chinese label. No text."
+    }
+  ],
+  "reusedAssets": {
+    "sidebar": "Assets/Resources/UI/Kifu/sidebar-walnut-v1.png",
+    "moveRecord": "Assets/Resources/UI/Kifu/record-parchment-v1.png",
+    "normalButton": "Assets/Resources/UI/Kifu/button-parchment-v1.png",
+    "resignButton": "Assets/Resources/UI/Kifu/button-parchment-v1.png (shared background; dark vermilion caption)",
+    "blackStone": "Assets/Art/Board/stone_black_256.png",
+    "whiteStone": "Assets/Art/Board/stone_white_256.png"
+  },
+  "layout": {
+    "playerInfo": "Both avatars on one horizontal row. Separate shared circular frame. Runtime stone badge at each avatar bottom-right; color follows player side. Name centered below each avatar. Komi label and value centered between avatars. Capture values on left and right, centered beneath each name; label centered between. Times below capture values; remaining byo-yomi count small at upper-right of each timer.",
+    "buttons": [
+      [
+        "悔棋",
+        "停一手",
+        "和棋",
+        "认输"
+      ],
+      [
+        "形势判断",
+        "数目"
+      ]
+    ],
+    "dynamicText": [
+      "玩家",
+      "电脑",
+      "贴目",
+      "XXX目",
+      "提子",
+      "capture values",
+      "remaining times",
+      "remaining byo-yomi periods",
+      "move records"
+    ],
+    "portraitLayering": "Use a circular mask behind avatar-frame-v1; keep portrait source aspect ratio. Portrait textures and reusable frame are separate. Computer faces left; player faces right.",
+    "unused": "avatar-computer-ink-v2.png is an earlier robot alternative; use avatar-computer-ink-sage-v3.png."
+  }
+}
