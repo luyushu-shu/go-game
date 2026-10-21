@@ -25,7 +25,7 @@ public static class BuildScript
             LoadRequired<Sprite>("Assets/Art/UI/Background/qiyi_ink_room_2048.png"),
             LoadRequired<Sprite>("Assets/Art/UI/Background/qiyi_mountain_silhouette_2048.png"),
             LoadRequired<Sprite>("Assets/Art/UI/Background/qiyi_bamboo_shadow_1024.png"),
-            LoadRequired<Sprite>("Assets/Art/Board/board_wood_1024.png"),
+            LoadRequired<Sprite>("Assets/Resources/Board/board_song_kaya_v2.png"),
             LoadRequired<Sprite>("Assets/Art/Board/stone_black_256.png"),
             LoadRequired<Sprite>("Assets/Art/Board/stone_white_256.png"),
             LoadRequired<Sprite>("Assets/Art/Board/stone_shadow_256.png"),

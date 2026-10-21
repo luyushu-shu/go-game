@@ -11,7 +11,7 @@ public sealed class GoRuntimeAssetManifest : MonoBehaviour
     public const string InkRoomBackgroundKey = "UI/Background/qiyi_ink_room_2048";
     public const string MountainSilhouetteKey = "UI/Background/qiyi_mountain_silhouette_2048";
     public const string BambooShadowKey = "UI/Background/qiyi_bamboo_shadow_1024";
-    public const string BoardWoodKey = "Board/board_wood_1024";
+    public const string BoardWoodKey = "Board/board_song_kaya_v2";
     public const string BlackStoneKey = "Board/stone_black_256";
     public const string WhiteStoneKey = "Board/stone_white_256";
     public const string StoneShadowKey = "Board/stone_shadow_256";
@@ -101,7 +101,8 @@ public sealed class GoRuntimeAssetManifest : MonoBehaviour
     {
         switch (key)
         {
-            case BoardWoodKey: return boardWood;
+            // Refresh older scenes without requiring their serialized references to change.
+            case BoardWoodKey: return Resources.Load<Sprite>(BoardWoodKey) ?? boardWood;
             case BlackStoneKey: return blackStone;
             case WhiteStoneKey: return whiteStone;
             case StoneShadowKey: return stoneShadow;
