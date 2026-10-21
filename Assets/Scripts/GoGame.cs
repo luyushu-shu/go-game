@@ -564,6 +564,7 @@ public partial class GoGame : MonoBehaviour
 
     void ShowMainMenu()
     {
+        audioManager?.PlayMusic("bgm_menu");
         InvalidateAiTurn();
         StopPlayClock();
         ClearResumedKifuSession();
