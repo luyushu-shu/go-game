@@ -92,6 +92,28 @@ public class GoBoardSkinTests
     }
 
     [Test]
+    public void HidingToolbarPreservesCoordinateToggleState()
+    {
+        var root = new GameObject("BoardSkinCoordinateTest");
+        try
+        {
+            var skin = root.AddComponent<GoBoardSkin>();
+            skin.Build(19, root.transform, null, null);
+            var coordinates = skin.BoardRoot.Find("Coordinates").gameObject;
+            var rules = new GoRules(19);
+            skin.Refresh(rules, true, true, false);
+            skin.SetToolbarVisible(false);
+            Assert.IsTrue(coordinates.activeInHierarchy);
+            skin.Refresh(rules, true, false, false);
+            skin.SetToolbarVisible(false);
+            Assert.IsFalse(coordinates.activeInHierarchy);
+        }
+        finally
+        {
+            Object.DestroyImmediate(root);
+        }
+    }
+    [Test]
     public void ClearRemovesPointCallbackBeforeFutureNotifications()
     {
         var root = new GameObject("BoardSkinClearCallbackTest");

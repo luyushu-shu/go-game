@@ -43,12 +43,15 @@ public sealed class GoBoardSkin : MonoBehaviour
     bool showTerritory;
     int boardSize;
     Font numberFont;
+    Font coordinateFont;
     float cellSize = 1f;
     GameObject toolbarRoot;
     Text toolbarMoveText;
     Text toolbarCoordinatesText;
     Text toolbarTerritoryText;
     GameObject coordinatesRoot;
+    RectTransform hoverCoordinateRoot;
+    Text hoverCoordinateText;
     Text[] colBottom, colTop, rowLeft, rowRight;
     SpriteRenderer[,] stoneRenderers;
     SpriteRenderer[,] deadRenderers;
@@ -161,6 +164,7 @@ public sealed class GoBoardSkin : MonoBehaviour
         LastMoveRenderer.enabled = false;
 
         BuildCoordinates();
+        BuildHoverCoordinate();
         BuildToolbar();
         SyncToolbarLabels();
     }
@@ -229,7 +233,7 @@ public sealed class GoBoardSkin : MonoBehaviour
     public void SetToolbarVisible(bool visible)
     {
         if (toolbarRoot != null) toolbarRoot.SetActive(visible);
-        if (coordinatesRoot != null) coordinatesRoot.SetActive(visible && showCoordinates);
+        // Coordinate visibility is controlled by its toggle, including when a custom toolbar is used.
     }
 
     public void NotifyPointClick(int x, int y)
@@ -262,6 +266,10 @@ public sealed class GoBoardSkin : MonoBehaviour
         VisibleMoveNumberCount = 0;
         toolbarRoot = null;
         coordinatesRoot = null;
+        hoverCoordinateRoot = null;
+        hoverCoordinateText = null;
+        if (coordinateFont != null) DestroyObject(coordinateFont);
+        coordinateFont = null;
         foreach (var sprite in ownedSprites) if (sprite != null) DestroyObject(sprite);
         foreach (var texture in ownedTextures) if (texture != null) DestroyObject(texture);
         ownedSprites.Clear();
@@ -335,6 +343,8 @@ public sealed class GoBoardSkin : MonoBehaviour
 
     void BuildCoordinates()
     {
+        coordinateFont = Font.CreateDynamicFontFromOSFont(
+            new[] { "Georgia", "Cambria", "Times New Roman" }, 28);
         coordinatesRoot = new GameObject("Coordinates");
         coordinatesRoot.transform.SetParent(BoardRoot, false);
         var canvas = coordinatesRoot.AddComponent<Canvas>();
@@ -367,15 +377,50 @@ public sealed class GoBoardSkin : MonoBehaviour
         rect.anchoredPosition = new Vector2((x - (boardSize - 1) * 0.5f) * 100f,
             (y - (boardSize - 1) * 0.5f) * 100f);
         var text = go.AddComponent<Text>();
-        text.font = numberFont != null ? numberFont : Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        text.font = coordinateFont != null ? coordinateFont : Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         text.text = value;
-        text.fontSize = 24;
+        text.fontSize = 28;
         text.color = new Color(0.61f, 0.55f, 0.43f);
         text.alignment = TextAnchor.MiddleCenter;
         text.horizontalOverflow = HorizontalWrapMode.Overflow;
         text.verticalOverflow = VerticalWrapMode.Overflow;
         text.raycastTarget = false;
         return text;
+    }
+
+    void BuildHoverCoordinate()
+    {
+        var go = new GameObject("HoverCoordinate", typeof(RectTransform), typeof(Canvas));
+        go.transform.SetParent(BoardRoot, false);
+        hoverCoordinateRoot = go.GetComponent<RectTransform>();
+        hoverCoordinateRoot.localScale = Vector3.one * 0.01f;
+        hoverCoordinateRoot.sizeDelta = new Vector2(126f, 60f);
+        var canvas = go.GetComponent<Canvas>();
+        canvas.renderMode = RenderMode.WorldSpace;
+        canvas.worldCamera = Camera.main;
+        canvas.overrideSorting = true;
+        canvas.sortingOrder = 30;
+        var background = go.AddComponent<Image>();
+        background.color = new Color(0.16f, 0.12f, 0.08f, 0.94f);
+        background.raycastTarget = false;
+        hoverCoordinateText = MakeCoordinateText(go.transform, (boardSize - 1) * 0.5f,
+            (boardSize - 1) * 0.5f, "");
+        hoverCoordinateText.rectTransform.sizeDelta = hoverCoordinateRoot.sizeDelta;
+        hoverCoordinateText.fontSize = 36;
+        hoverCoordinateText.color = new Color(1f, 0.93f, 0.78f);
+        go.SetActive(false);
+    }
+
+    public void ShowHoverCoordinate(int x, int y, bool visible)
+    {
+        if (hoverCoordinateRoot == null) return;
+        visible = visible && x >= 0 && y >= 0 && x < boardSize && y < boardSize;
+        hoverCoordinateRoot.gameObject.SetActive(visible);
+        if (!visible) return;
+        hoverCoordinateText.text = ColLabel(x) + RowLabel(y);
+        float offsetX = x >= boardSize - 2 ? -0.95f : 0.95f;
+        float offsetY = y >= boardSize - 2 ? -0.65f : 0.65f;
+        hoverCoordinateRoot.localPosition = new Vector3(x + offsetX, y + offsetY, 0f);
     }
 
     void BuildToolbar()

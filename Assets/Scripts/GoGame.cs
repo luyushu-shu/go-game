@@ -778,6 +778,7 @@ public partial class GoGame : MonoBehaviour
         clockController?.Tick(Time.unscaledDeltaTime);
         if (inMenu)
         {
+            boardSkin?.ShowHoverCoordinate(0, 0, false);
             if (ghostSr != null) ghostSr.enabled = false;
             if (ghostMarkSr != null) ghostMarkSr.enabled = false;
             return;
@@ -787,6 +788,7 @@ public partial class GoGame : MonoBehaviour
         bool inside = x >= 0 && y >= 0 && x < boardSize && y < boardSize
                       && Mathf.Abs(w.x - x) < 0.48f && Mathf.Abs(w.y - y) < 0.48f;
         bool overUI = EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
+        boardSkin?.ShowHoverCoordinate(x, y, inside && !overUI);
 
         bool canHover = !reviewingKifu && inside && !overUI && rules.Phase == GoPhase.Play && rules.Result == null
                         && !aiBusy && rules.Board[rules.Idx(x, y)] == GoRules.EMPTY
