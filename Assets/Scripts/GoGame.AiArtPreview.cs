@@ -30,8 +30,14 @@ public partial class GoGame
         yield return new WaitForSecondsRealtime(.8f);
         VerifyAiArtLayout();
         CaptureStudyFrame(Path.Combine(folder, "ai-match-black-19.png"));
-        if (aiArtContent.childCount != 3 || aiArtPlayerPeriods.text != "3")
+        if (aiArtContent.childCount != 6 || aiArtPlayerPeriods.text != "3")
             throw new Exception("AI record rows or byoyomi indicator missing");
+        if (aiArtRecord.Find("Columns") != null
+            || aiArtContent.GetChild(0).Find("Entry/BlackStone") == null
+            || aiArtContent.GetChild(1).Find("Entry/WhiteStone") == null
+            || aiArtContent.GetChild(0).Find("Entry/Number").GetComponent<UnityEngine.UI.Text>().text != "001"
+            || aiArtContent.GetChild(0).Find("Entry/Coordinate").GetComponent<UnityEngine.UI.Text>().text != "D4")
+            throw new Exception("AI move record is not number / stone / coordinate without header");
         if (aiArtPlayerStone.sprite != stoneBlack || aiArtComputerStone.sprite != stoneWhite)
             throw new Exception("AI stone badges do not match sides");
         OpenStudyJudgment(); UpdateClockPauseState();
@@ -91,7 +97,7 @@ public partial class GoGame
         if (aiArtRoot.activeSelf || !sceneBackgroundLayer.activeSelf)
             throw new Exception("AI menu restoration failed");
         File.WriteAllText(Path.Combine(folder, "validation.txt"),
-            "PASS: AI art runtime resources; board/bowl/lid/sidebar bounds at desktop aspect ratios; 9/13/19 boards; human black/white badges and capture mapping; paired record; timer/byoyomi; modal clock pause; undo; coordinate/move toggles; judgment/draw/resign/score dialogs; study/menu restoration.");
+            "PASS: AI art runtime resources; board/bowl/lid/sidebar bounds at desktop aspect ratios; 9/13/19 boards; human black/white badges and capture mapping; headerless move-number/stone/coordinate record; timer/byoyomi; modal clock pause; undo; coordinate/move toggles; judgment/draw/resign/score dialogs; study/menu restoration.");
         Application.Quit(0);
     }
 
@@ -120,6 +126,17 @@ public partial class GoGame
         float diameters = (aiArtRightBowl.rect.width + aiArtRightLid.rect.width) / 2;
         if (pairDistance > diameters + 2 || aiArtLeftBowl.anchoredPosition.y <= aiArtRightBowl.anchoredPosition.y)
             throw new Exception("AI bowls are not arranged as close opposing right-hand pairs");
+        float bowlRadius = aiArtLeftBowl.rect.width * studyArtCanvas.GetComponentInParent<UnityEngine.Canvas>().scaleFactor / 2;
+        if (aiArtLeftBowl.position.x >= min.x || aiArtLeftBowl.position.y < max.y - bowlRadius
+            || aiArtRightBowl.position.x <= max.x || aiArtRightBowl.position.y > min.y + bowlRadius)
+            throw new Exception("AI bowls are not close to the diagonal board corners");
+        float canvasW = studyArtCanvas.rect.width, canvasH = studyArtCanvas.rect.height;
+        float sideWidth = Mathf.Clamp(canvasW * .25f, 400, 480);
+        float regionWidth = canvasW - sideWidth - 130;
+        float originalBoardSize = Mathf.Min(canvasH - 150,
+            regionWidth - 2 * (Mathf.Clamp(regionWidth * .12f, 105, 154) + 22));
+        if (Mathf.Abs((max.x - min.x) / Screen.width * canvasW - originalBoardSize) > 1)
+            throw new Exception("AI board was resized by decorative assets");
     }
 }
 #endif

@@ -108,13 +108,8 @@ public partial class GoGame
         StudyArtImage(aiArtRecord, "record-parchment-v1");
         StudyArtLabelImage(aiArtRecord, "RecordTitle", "record-title-v1",
             new Vector2(.25f, 1), new Vector2(.75f, 1), new Vector2(0, -58), new Vector2(0, -20));
-        var header = StudyArtRect(aiArtRecord, "Columns", new Vector2(0, 1), Vector2.one,
-            new Vector2(30, -93), new Vector2(-30, -60));
-        AiArtText(header, "Ply", "手数", 20, 0, 0, .22f, 1);
-        AiArtText(header, "Black", "黑方", 20, .22f, 0, .61f, 1);
-        AiArtText(header, "White", "白方", 20, .61f, 0, 1, 1);
         var viewport = StudyArtRect(aiArtRecord, "Viewport", Vector2.zero, Vector2.one,
-            new Vector2(30, 25), new Vector2(-30, -96));
+            new Vector2(30, 25), new Vector2(-30, -65));
         viewport.gameObject.AddComponent<RectMask2D>();
         viewport.gameObject.AddComponent<Image>().color = Color.clear;
         aiArtScroll = viewport.gameObject.AddComponent<ScrollRect>();
@@ -254,8 +249,15 @@ public partial class GoGame
         PlaceAiArtSection(aiArtActions, 18, 25, panelW - 36, 120);
         float regionW = w - panelW - 3 * margin - gap;
         float lane = Mathf.Clamp(regionW * .12f, 105, 154);
+        float bowlSize = lane * 1.36f;
+        float lidSize = bowlSize * .86f;
+        float lidDistance = bowlSize * .88f;
+        // Board scale stays independent of decorative bowl/lid sizes.
         float boardPixels = Mathf.Min(h - 150, regionW - 2 * (lane + gap));
-        float boardX = margin + regionW / 2 + 60, boardY = h * .52f;
+        float panelLeft = w - margin - panelW;
+        float boardX = Mathf.Clamp(margin + regionW / 2 + 72,
+            bowlSize + 14 + boardPixels / 2, panelLeft - bowlSize - 14 - boardPixels / 2);
+        float boardY = h * .52f;
         float worldH = (boardSize + 1) * h / Mathf.Max(1, boardPixels);
         float worldW = worldH * cam.aspect, c = (boardSize - 1) / 2f;
         cam.orthographicSize = worldH / 2;
@@ -267,20 +269,19 @@ public partial class GoGame
             aiArtBackground.transform.position = new Vector3(cam.transform.position.x, cam.transform.position.y, 2);
             aiArtBackground.transform.localScale = Vector3.one * Mathf.Max(worldW / sprite.bounds.size.x, worldH / sprite.bounds.size.y);
         }
-        float left = boardX - boardPixels / 2 - 2 - lane / 2;
-        float right = boardX + boardPixels / 2 + 2 + lane / 2;
+        float left = boardX - boardPixels / 2 - 2 - bowlSize / 2;
+        float right = boardX + boardPixels / 2 + 2 + bowlSize / 2;
         // Each seated player keeps the bowl on their right: opponent top-left, human bottom-right.
         // Bring the lid rims almost into contact with the bowl rims, leaving room for captured stones.
-        float upperCornerY = boardY + boardPixels / 2 - lane / 2 + 22;
-        float lowerCornerY = boardY - boardPixels / 2 + lane / 2 - 22;
-        PlaceAiArtObject(aiArtLeftBowl, left, upperCornerY, lane);
-        PlaceAiArtObject(aiArtLeftLid, left, upperCornerY - lane * .88f, lane * .86f);
-        PlaceAiArtObject(aiArtRightBowl, right, lowerCornerY, lane);
-        PlaceAiArtObject(aiArtRightLid, right, lowerCornerY + lane * .88f, lane * .86f);
+        float upperCornerY = Mathf.Min(boardY + boardPixels / 2 + bowlSize * .14f, h - bowlSize / 2 - 12);
+        float lowerCornerY = Mathf.Max(boardY - boardPixels / 2 - bowlSize * .14f, bowlSize / 2 + 12);
+        PlaceAiArtObject(aiArtLeftBowl, left, upperCornerY, bowlSize);
+        PlaceAiArtObject(aiArtLeftLid, left, upperCornerY - lidDistance, lidSize);
+        PlaceAiArtObject(aiArtRightBowl, right, lowerCornerY, bowlSize);
+        PlaceAiArtObject(aiArtRightLid, right, lowerCornerY + lidDistance, lidSize);
         float boardRight = boardX + boardPixels / 2;
-        float panelLeft = w - margin - panelW;
         float toolsWidth = Mathf.Min(108, panelLeft - boardRight - 28);
-        float toolsBottom = Mathf.Max(h * .5f - 72, lowerCornerY + lane * 1.31f + 10);
+        float toolsBottom = Mathf.Max(h * .5f - 72, lowerCornerY + lidDistance + lidSize / 2 + 10);
         PlaceAiArtSection(aiArtTools, (boardRight + panelLeft) / 2 - toolsWidth / 2,
             toolsBottom, toolsWidth, 144);
         studyArtDialogCard.anchorMin = studyArtDialogCard.anchorMax = new Vector2(1, .5f);
@@ -372,24 +373,20 @@ public partial class GoGame
         if (signature == aiArtRecordSignature) return;
         aiArtRecordSignature = signature;
         for (int i = aiArtContent.childCount - 1; i >= 0; i--) Destroy(aiArtContent.GetChild(i).gameObject);
-        // Preserve recorded colors, including handicap openings and passes.
-        var rows = new List<string[]>();
+        // One entry per actual move; the icon follows the logged color, including handicap openings.
+        aiArtContent.sizeDelta = new Vector2(0, Mathf.Max(40, count * 36 + 8));
         for (int i = 0; i < count; i++)
         {
             rules.GetLoggedMove(i, out int x, out int y, out int color, out bool pass);
-            int column = color == GoRules.BLACK ? 1 : 2;
-            if (rows.Count == 0 || column == 1 || rows[rows.Count - 1][column] != "")
-                rows.Add(new[] { (rows.Count + 1).ToString(), "", "" });
-            rows[rows.Count - 1][column] = pass ? "停一手" : ColLabel(x) + RowLabel(y);
-        }
-        aiArtContent.sizeDelta = new Vector2(0, Mathf.Max(40, rows.Count * 34 + 8));
-        for (int i = 0; i < rows.Count; i++)
-        {
-            var row = StudyArtRect(aiArtContent, "Pair_" + i, new Vector2(0, 1), Vector2.one,
-                new Vector2(0, -(i + 1) * 34), new Vector2(0, -i * 34));
-            AiArtText(row, "Number", rows[i][0], 20, 0, 0, .22f, 1);
-            AiArtText(row, "Black", rows[i][1], 21, .22f, 0, .61f, 1);
-            AiArtText(row, "White", rows[i][2], 21, .61f, 0, 1, 1);
+            var row = StudyArtRect(aiArtContent, "Move_" + (i + 1), new Vector2(0, 1), Vector2.one,
+                new Vector2(0, -(i + 1) * 36), new Vector2(0, -i * 36));
+            var entry = StudyArtRect(row, "Entry", new Vector2(.5f, .5f), new Vector2(.5f, .5f),
+                new Vector2(-120, -18), new Vector2(120, 18));
+            AiArtText(entry, "Number", (i + 1).ToString("000"), 21, 0, 0, .26f, 1);
+            StudyArtStone(entry, color == GoRules.BLACK, new Vector2(.39f, .5f), 26);
+            var coordinate = AiArtText(entry, "Coordinate", pass ? "停一手" : ColLabel(x) + RowLabel(y),
+                23, .54f, 0, 1, 1);
+            coordinate.alignment = TextAnchor.MiddleLeft;
         }
         Canvas.ForceUpdateCanvases(); aiArtScroll.verticalNormalizedPosition = 0;
     }
