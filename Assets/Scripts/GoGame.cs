@@ -395,7 +395,7 @@ public partial class GoGame : MonoBehaviour
         }
         ClearResumedKifuSession();
         audioManager?.PlaySfx("button_confirm");
-        audioManager?.PlayMusic("bgm_study");
+        audioManager?.PlayMusic("bgm_ai_match");
         inStudyMode = false;
         vsAI = true;
         showMoveNums = true;
