@@ -194,7 +194,7 @@ public partial class GoGame : MonoBehaviour
     InputField llmKeyInput;
     InputField customMainMinutesInput, customByoyomiPeriodsInput, customByoyomiSecondsInput;
     GameObject customMainTimeRoot, customByoyomiRoot;
-    Text timeValidationText, byoyomiValidationText;
+    Text timeValidationText, byoyomiValidationText, aiSetupErrorText;
     string customMainMinutesText = "", customByoyomiPeriodsText = "", customByoyomiSecondsText = "";
     bool customMainMinutesDirty, customByoyomiPeriodsDirty, customByoyomiSecondsDirty;
 
@@ -368,6 +368,7 @@ public partial class GoGame : MonoBehaviour
 
     void StartAiGame()
     {
+        if (aiSetupErrorText != null) aiSetupErrorText.text = "";
         InvalidateAiTurn();
         StopPlayClock();
         string startNotice = null;
@@ -389,12 +390,12 @@ public partial class GoGame : MonoBehaviour
         }
         if (opponentChoice == 1 && !GoKataGo.IsAvailable())
         {
-            Flash(GoKataGo.InstallHint());
+            Flash("KataGo 尚未就绪，可选择「本地引擎」开始对局。\n" + GoKataGo.InstallHint());
             return;
         }
         ClearResumedKifuSession();
         audioManager?.PlaySfx("button_confirm");
-        audioManager?.PlayMusic("bgm_study");
+        audioManager?.PlayMusic("bgm_ai_match");
         inStudyMode = false;
         vsAI = true;
         showMoveNums = true;
@@ -2665,7 +2666,7 @@ public partial class GoGame : MonoBehaviour
         var scrollRect = scroll.GetComponent<RectTransform>();
         scrollRect.anchorMin = Vector2.zero;
         scrollRect.anchorMax = Vector2.one;
-        scrollRect.offsetMin = new Vector2(56f, 156f);
+        scrollRect.offsetMin = new Vector2(56f, 220f);
         scrollRect.offsetMax = new Vector2(-56f, -140f);
         scroll.GetComponent<Image>().color = Color.clear;
         scroll.viewport.offsetMin = new Vector2(4f, 4f);
@@ -2709,13 +2710,21 @@ public partial class GoGame : MonoBehaviour
         footerRect.anchorMin = Vector2.zero;
         footerRect.anchorMax = new Vector2(1f, 0f);
         footerRect.offsetMin = new Vector2(64f, 44f);
-        footerRect.offsetMax = new Vector2(-64f, 148f);
+        footerRect.offsetMax = new Vector2(-64f, 212f);
         var footerGroup = footer.GetComponent<VerticalLayoutGroup>();
         footerGroup.spacing = 4f;
         footerGroup.childAlignment = TextAnchor.LowerCenter;
         footerGroup.childControlWidth = footerGroup.childControlHeight = true;
         footerGroup.childForceExpandWidth = true;
         footerGroup.childForceExpandHeight = false;
+        aiSetupErrorText = MakeText(footer.transform, "", 16, uiTheme.Cinnabar, TextAnchor.MiddleCenter);
+        aiSetupErrorText.gameObject.name = "AiSetupError";
+        aiSetupErrorText.font = restoredMenuFont != null ? restoredMenuFont : font;
+        aiSetupErrorText.fontSize = 16;
+        aiSetupErrorText.raycastTarget = false;
+        aiSetupErrorText.horizontalOverflow = HorizontalWrapMode.Wrap;
+        var errorLayout = aiSetupErrorText.gameObject.AddComponent<LayoutElement>();
+        errorLayout.minHeight = errorLayout.preferredHeight = 60f;
         timeValidationText = MakeText(footer.transform, "", 16, uiTheme.Cinnabar, TextAnchor.MiddleCenter);
         byoyomiValidationText = MakeText(footer.transform, "", 16, uiTheme.Cinnabar, TextAnchor.MiddleCenter);
         foreach (var validation in new[] { timeValidationText, byoyomiValidationText })
@@ -4603,6 +4612,7 @@ public partial class GoGame : MonoBehaviour
 
     void SyncAiSetup()
     {
+        if (aiSetupErrorText != null) aiSetupErrorText.text = "";
         PaintOptions(optSize, sizeChoice);
         PaintOptions(optColor, colorChoice);
         PaintOptions(optMainTime, (int)timeControl.MainPreset);
@@ -5068,6 +5078,13 @@ public partial class GoGame : MonoBehaviour
 
     void Flash(string msg)
     {
+        // Launch validation happens before the gameplay sidebar is visible.
+        // Keep its message on the setup page until the player changes settings.
+        if (aiSetupPanel != null && aiSetupPanel.activeInHierarchy && aiSetupErrorText != null)
+        {
+            aiSetupErrorText.text = msg;
+            return;
+        }
         msgText.text = msg;
         if (msgCo != null) StopCoroutine(msgCo);
         msgCo = StartCoroutine(ClearMsg());

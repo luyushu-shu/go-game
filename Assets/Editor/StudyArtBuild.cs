@@ -13,6 +13,8 @@ public static class StudyArtBuild
             target = BuildTarget.StandaloneWindows64,
             options = BuildOptions.Development
         });
+        if (report.summary.result == BuildResult.Succeeded)
+            AiArtBuild.CopyLocalKataGoForPreview("Builds/StudyUiPreview/Tools/KataGo");
         EditorApplication.Exit(report.summary.result == BuildResult.Succeeded ? 0 : 1);
     }
 }

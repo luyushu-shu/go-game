@@ -15,17 +15,22 @@ public static class AiArtBuild
             options = BuildOptions.Development
         });
         if (report.summary.result == BuildResult.Succeeded)
-        {
-            string destination = "Builds/AiUiPreview/Tools/KataGo";
-            System.IO.Directory.CreateDirectory(destination);
-            foreach (string source in System.IO.Directory.GetFiles("Tools/KataGo"))
-            {
-                string extension = System.IO.Path.GetExtension(source);
-                if (extension == ".exe" || extension == ".dll" || extension == ".gz" || extension == ".cfg" || extension == ".txt")
-                    System.IO.File.Copy(source, System.IO.Path.Combine(destination, System.IO.Path.GetFileName(source)), true);
-            }
-        }
+            CopyLocalKataGoForPreview("Builds/AiUiPreview/Tools/KataGo");
         EditorApplication.Exit(report.summary.result == BuildResult.Succeeded ? 0 : 1);
+    }
+
+    // Local previews use the engine already installed in this project.
+    // Missing files still surface through the runtime launch guard.
+    public static void CopyLocalKataGoForPreview(string destination)
+    {
+        if (!System.IO.Directory.Exists("Tools/KataGo")) return;
+        System.IO.Directory.CreateDirectory(destination);
+        foreach (string source in System.IO.Directory.GetFiles("Tools/KataGo"))
+        {
+            string extension = System.IO.Path.GetExtension(source);
+            if (extension == ".exe" || extension == ".dll" || extension == ".gz" || extension == ".cfg" || extension == ".txt")
+                System.IO.File.Copy(source, System.IO.Path.Combine(destination, System.IO.Path.GetFileName(source)), true);
+        }
     }
 
     [MenuItem("Tools/AI Match/Configure Art Textures")]
