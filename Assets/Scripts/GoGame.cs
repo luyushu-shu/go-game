@@ -2266,8 +2266,8 @@ public partial class GoGame : MonoBehaviour
             string lead = diff > 0.05f ? $"黑领先约 {diff:0.0} 目"
                         : diff < -0.05f ? $"白领先约 {-diff:0.0} 目" : "接近均势";
             studyTerritoryText.text =
-                $"形势（Bouzy 5/21）  黑 {bs:0.0}    白 {ws:0.0}（含贴目 {rules.Komi:0.0}）\n" +
-                $"实地 黑{bt} 白{wt}    厚势 黑{bm} 白{wm}" +
+                $"形势（本地模拟估目）  黑 {bs:0.0}    白 {ws:0.0}（含贴目 {rules.Komi:0.0}）\n" +
+                $"估计空点 黑{bt} 白{wt}" +
                 (db + dw > 0 ? $"    疑死 黑{db} 白{dw}" : "") +
                 $"\n{lead}";
         }
@@ -5071,6 +5071,7 @@ public partial class GoGame : MonoBehaviour
 
     void Refresh()
     {
+        if (rules != null) rules.BackgroundSituationAnalysis = AiArtActive;
         bool rev = reviewingKifu;
         if (btnUndo != null) btnUndo.SetActive(!rev);
         if (btnPass != null) btnPass.SetActive(!rev);

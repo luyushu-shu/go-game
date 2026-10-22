@@ -19,6 +19,10 @@ public partial class GoGame
     Text aiArtKomi, aiArtPlayerCaptures, aiArtComputerCaptures, aiArtPlayerTime, aiArtComputerTime;
     Text aiArtPlayerPeriods, aiArtComputerPeriods;
     Button aiArtUndo, aiArtPass, aiArtDraw, aiArtResign, aiArtScore;
+    Text aiArtJudgmentLabel, aiArtJudgmentLead, aiArtBlackScore, aiArtWhiteScore;
+    Text aiArtBlackPrisoners, aiArtWhitePrisoners, aiArtJudgmentNote;
+    RectTransform aiArtJudgmentCard;
+    GoSituationEstimator.Result aiRenderedSituation;
     int aiArtRecordSignature = int.MinValue;
     bool aiArtWasActive;
     readonly List<Image> aiArtLeftPrisoners = new List<Image>();
@@ -125,7 +129,9 @@ public partial class GoGame
         aiArtPass = AiArtButton(aiArtActions, "停一手", HumanPass, .25f, .52f, .5f, 1);
         aiArtDraw = AiArtButton(aiArtActions, "和棋", OpenAiArtDraw, .5f, .52f, .75f, 1);
         aiArtResign = AiArtButton(aiArtActions, "认输", HumanResign, .75f, .52f, 1, 1);
-        AiArtButton(aiArtActions, "形势判断", OpenStudyJudgment, 0, 0, .5f, .46f, true);
+        var judgment = AiArtButton(aiArtActions, "形势判断", ToggleAiArtJudgment, 0, 0, .5f, .46f, true);
+        aiArtJudgmentLabel = judgment.GetComponentInChildren<Text>();
+        BuildAiArtJudgmentCard();
         aiArtScore = AiArtButton(aiArtActions, "数目", OpenScorePopup, .5f, 0, 1, .46f, true);
         aiArtTools = AiArtRect(aiArtRoot.transform, "BoardTools", 0, 0, 0, 0);
         AiArtButton(aiArtTools, "手数", () => ToggleAiArtBoard(true), 0, .54f, 1, 1);
@@ -190,6 +196,57 @@ public partial class GoGame
         boardSkin.Refresh(rules, showMoveNums, showCoords, showTerritory);
     }
 
+    void ToggleAiArtJudgment()
+    {
+        showTerritory = !showTerritory;
+        Refresh();
+    }
+
+    void BuildAiArtJudgmentCard()
+    {
+        // Reuse the full comparison card without the modal overlay or dialog buttons.
+        aiArtJudgmentCard = Instantiate(studyArtDialogCard.gameObject, aiArtPanel, false).GetComponent<RectTransform>();
+        aiArtJudgmentCard.name = "AiJudgmentCard";
+        foreach (var button in aiArtJudgmentCard.GetComponentsInChildren<Button>(true))
+            button.gameObject.SetActive(false);
+        foreach (var graphic in aiArtJudgmentCard.GetComponentsInChildren<Graphic>(true))
+            graphic.raycastTarget = false;
+        aiArtJudgmentLead = aiArtJudgmentCard.Find("Lead").GetComponent<Text>();
+        aiArtBlackScore = aiArtJudgmentCard.Find("BlackScore").GetComponent<Text>();
+        aiArtWhiteScore = aiArtJudgmentCard.Find("WhiteScore").GetComponent<Text>();
+        aiArtBlackPrisoners = aiArtJudgmentCard.Find("BlackPrisoners").GetComponent<Text>();
+        aiArtWhitePrisoners = aiArtJudgmentCard.Find("WhitePrisoners").GetComponent<Text>();
+        aiArtJudgmentNote = aiArtJudgmentCard.Find("Note").GetComponent<Text>();
+        aiArtJudgmentCard.gameObject.SetActive(false);
+    }
+
+    void RefreshAiArtJudgment()
+    {
+        aiArtJudgmentLabel.text = showTerritory ? "形势判断：开" : "形势判断：关";
+        aiArtJudgmentCard.gameObject.SetActive(showTerritory);
+        aiArtRecord.gameObject.SetActive(!showTerritory);
+        if (!showTerritory) return;
+        aiArtBlackPrisoners.text = rules.Captures[GoRules.BLACK].ToString();
+        aiArtWhitePrisoners.text = rules.Captures[GoRules.WHITE].ToString();
+        if (!rules.TryGetSituation(out var situation, true))
+        {
+            aiArtJudgmentLead.text = "正在估目…";
+            aiArtBlackScore.text = aiArtWhiteScore.text = "—";
+            aiArtJudgmentNote.text = "本地后台计算，可继续行棋";
+            return;
+        }
+        float black = situation.BlackScore, white = situation.WhiteScore;
+        float lead = black - white;
+        aiArtJudgmentLead.text = Mathf.Abs(lead) < .05f ? "双方均势"
+            : $"{(lead > 0 ? "黑棋" : "白棋")}领先 {Mathf.Abs(lead):0.#} 目";
+        aiArtBlackScore.text = black.ToString("0.#");
+        aiArtWhiteScore.text = white.ToString("0.#");
+        aiArtBlackPrisoners.text = rules.Captures[GoRules.BLACK].ToString();
+        aiArtWhitePrisoners.text = rules.Captures[GoRules.WHITE].ToString();
+        aiArtJudgmentCard.Find("ScoreLabel").GetComponent<Text>().text = "估计总分";
+        aiArtJudgmentNote.text = $"活子＋归属标记 · 白含贴目 {rules.Komi:0.#}\n未定区域不计分 · 提子不重复相加";
+    }
+
     void OpenAiArtDraw()
     {
         if (aiBusy || rules.Result != null || rules.Phase != GoPhase.Play) return;
@@ -245,7 +302,13 @@ public partial class GoGame
         float infoH = Mathf.Clamp(panelH * .31f, 270, 320);
         PlaceAiArtSection(aiArtPlayers, 18, panelH - 18 - infoH, panelW - 36, infoH);
         aiArtPlayerAvatar.sizeDelta = aiArtComputerAvatar.sizeDelta = Vector2.one * (infoH * .40f);
-        PlaceAiArtSection(aiArtRecord, 18, 160, panelW - 36, panelH - infoH - 192);
+        float recordH = panelH - infoH - 192;
+        PlaceAiArtSection(aiArtRecord, 18, 160, panelW - 36, recordH);
+        aiArtJudgmentCard.anchorMin = aiArtJudgmentCard.anchorMax = Vector2.zero;
+        aiArtJudgmentCard.pivot = new Vector2(.5f, .5f);
+        aiArtJudgmentCard.sizeDelta = new Vector2(620, 520);
+        aiArtJudgmentCard.anchoredPosition = new Vector2(panelW / 2, 160 + recordH / 2);
+        aiArtJudgmentCard.localScale = Vector3.one * Mathf.Min((panelW - 36) / 620, recordH / 520);
         PlaceAiArtSection(aiArtActions, 18, 25, panelW - 36, 120);
         float regionW = w - panelW - 3 * margin - gap;
         float lane = Mathf.Clamp(regionW * .12f, 105, 154);
@@ -330,12 +393,21 @@ public partial class GoGame
         aiArtDraw.interactable = playing && !aiBusy;
         aiArtResign.interactable = playing && !aiBusy;
         aiArtScore.interactable = rules.Result == null;
-        RefreshAiArtClock(); RefreshAiArtRecord();
+        RefreshAiArtJudgment(); RefreshAiArtClock(); RefreshAiArtRecord();
     }
 
     void RefreshAiArtClock()
     {
         if (!AiArtActive || aiArtPlayerTime == null || clockController == null) return;
+        if (showTerritory)
+        {
+            RefreshAiArtJudgment();
+            if (rules.TryGetSituation(out var situation, true) && !ReferenceEquals(situation, aiRenderedSituation))
+            {
+                aiRenderedSituation = situation;
+                boardSkin.Refresh(rules, showMoveNums, showCoords, showTerritory);
+            }
+        }
         RenderAiArtClock(humanColor, aiArtPlayerTime, aiArtPlayerPeriods, aiArtPlayerFrame);
         RenderAiArtClock(aiColor, aiArtComputerTime, aiArtComputerPeriods, aiArtComputerFrame);
         // AI busy state can change between moves, without a rule-state refresh.

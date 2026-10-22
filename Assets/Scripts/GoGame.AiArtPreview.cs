@@ -8,9 +8,58 @@ public partial class GoGame
 {
     void StartAiArtPreviewIfRequested()
     {
+        if (Array.IndexOf(Environment.GetCommandLineArgs(), "-localEstimatorPreview") >= 0)
+        {
+            Application.runInBackground = true;
+            StartCoroutine(CaptureLocalEstimatorPreview());
+            return;
+        }
         if (Array.IndexOf(Environment.GetCommandLineArgs(), "-aiArtPreview") < 0) return;
         Application.runInBackground = true;
         StartCoroutine(CaptureAiArtPreview());
+    }
+
+    IEnumerator CaptureLocalEstimatorPreview()
+    {
+        yield return null;
+        string folder = Path.GetFullPath(Path.Combine(Application.dataPath, "../docs/local-estimator"));
+        Directory.CreateDirectory(folder);
+        inStudyMode = false; vsAI = true; reviewingKifu = false;
+        humanColor = GoRules.BLACK; showMoveNums = true; showTerritory = false;
+        timeControl = GoTimeControl.FromPreset(GoTimePreset.FiveMinutes, GoByoyomiPreset.ThreeByThirty);
+        boardSize = 19; rules = new GoRules(19); rules.Komi = 7.5f;
+        EnterGame();
+        rules.Play(15, 15, out _); rules.Play(3, 15, out _);
+        StartPlayClock(); Refresh(); ToggleAiArtJudgment();
+        float deadline = Time.realtimeSinceStartup + 20;
+        while (!rules.TryGetSituation(out _, true) && Time.realtimeSinceStartup < deadline) yield return null;
+        if (!rules.TryGetSituation(out var result, true)) throw new Exception("Local estimate did not complete");
+        Refresh(); UpdateClockPauseState(); yield return null;
+        if (studyArtDialog.activeSelf || !clockController.IsRunning)
+            throw new Exception("Judgment blocks play or clock");
+        if (result.BlackTerritory != result.WhiteTerritory || result.BlackScore + 7.5f != result.WhiteScore)
+            throw new Exception("Symmetric opening estimate differs");
+        CaptureStudyFrame(Path.Combine(folder, "two-stones.png"));
+        if (!rules.Play(15, 3, out _) || !rules.Play(3, 3, out _))
+            throw new Exception("Cannot continue play with judgment active");
+        Refresh(); deadline = Time.realtimeSinceStartup + 20;
+        while (!rules.TryGetSituation(out _, true) && Time.realtimeSinceStartup < deadline) yield return null;
+        if (!rules.TryGetSituation(out result, true)) throw new Exception("Updated estimate did not complete");
+        Refresh(); yield return null;
+        CaptureStudyFrame(Path.Combine(folder, "four-stones.png"));
+        int markers = 0;
+        foreach (var renderer in boardRoot.GetComponentsInChildren<SpriteRenderer>())
+            if (renderer.name == "Territory" && renderer.enabled) markers++;
+        if (markers != result.BlackTerritory + result.WhiteTerritory + result.DeadBlack + result.DeadWhite)
+            throw new Exception("Rendered markers and score snapshot differ");
+        if (markers == 0) throw new Exception("Local opening estimate has no visible ownership evidence");
+        ToggleAiArtJudgment();
+        if (aiArtJudgmentCard.gameObject.activeSelf || !aiArtRecord.gameObject.activeSelf)
+            throw new Exception("Judgment toggle failed");
+        File.WriteAllText(Path.Combine(folder, "validation.txt"),
+            "PASS: background estimate; symmetric opening; live clock; continued legal play; updated snapshot; rendered markers="
+            + markers + "; black area=" + result.BlackScore + "; white area=" + result.WhiteScore + "; toggle restores record.");
+        Application.Quit(0);
     }
 
     IEnumerator CaptureAiArtPreview()

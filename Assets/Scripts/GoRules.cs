@@ -326,9 +326,48 @@ public class GoRules
         whiteScore = whiteStones + whiteTerr + Komi;
     }
 
-    // 形势判断：Bruno Bouzy 5/21 形态学估目（GNU Go estimate_score / Indigo 同款）。
-    // 先对棋子影响力做 5 次膨胀、再 21 次腐蚀；残留正负值视为实地。
-    // 5/10 得到更大的厚势（moyo）。对方棋子落在己方实地内视为被吃。
+    public bool BackgroundSituationAnalysis;
+    int[] situationBoard, runningSituationBoard;
+    float situationKomi, runningSituationKomi;
+    GoSituationEstimator.Result situationResult;
+    System.Threading.Tasks.Task<GoSituationEstimator.Result> situationTask;
+
+    bool SameSituation(int[] snapshot, float komi)
+    {
+        if (snapshot == null || snapshot.Length != Board.Length || komi != Komi) return false;
+        for (int i = 0; i < Board.Length; i++) if (snapshot[i] != Board[i]) return false;
+        return true;
+    }
+
+    public bool TryGetSituation(out GoSituationEstimator.Result result, bool background = false)
+    {
+        if (!SameSituation(situationBoard, situationKomi)) situationResult = null;
+        if (situationTask != null && situationTask.IsCompleted)
+        {
+            if (situationTask.Status == System.Threading.Tasks.TaskStatus.RanToCompletion
+                && SameSituation(runningSituationBoard, runningSituationKomi))
+            {
+                situationBoard = runningSituationBoard; situationKomi = runningSituationKomi;
+                situationResult = situationTask.Result;
+            }
+            situationTask = null;
+        }
+        if (situationResult == null && !background)
+        {
+            situationBoard = (int[])Board.Clone(); situationKomi = Komi;
+            situationResult = GoSituationEstimator.Estimate(situationBoard, Size, Komi);
+        }
+        else if (situationResult == null && situationTask == null)
+        {
+            var snapshot = (int[])Board.Clone(); int size = Size; float komi = Komi;
+            runningSituationBoard = snapshot; runningSituationKomi = komi;
+            situationTask = System.Threading.Tasks.Task.Run(() => GoSituationEstimator.Estimate(snapshot, size, komi));
+        }
+        result = situationResult;
+        return result != null;
+    }
+
+    // One area-scoring snapshot supplies every marker, count and lead. Unknown is neutral.
     public void EstimateSituation(
         out float blackScore, out float whiteScore,
         out int blackTerr, out int whiteTerr,
@@ -336,96 +375,17 @@ public class GoRules
         out int deadBlack, out int deadWhite,
         out int[] owner)
     {
-        int n = Size * Size;
-        var a = new int[n];
-        var b = new int[n];
-        for (int i = 0; i < n; i++)
+        blackMoyo = whiteMoyo = 0;
+        if (!TryGetSituation(out var result, BackgroundSituationAnalysis))
         {
-            if (Board[i] == BLACK) a[i] = 128;
-            else if (Board[i] == WHITE) a[i] = -128;
+            blackScore = whiteScore = 0; blackTerr = whiteTerr = deadBlack = deadWhite = 0;
+            owner = new int[Board.Length]; return;
         }
-
-        for (int k = 0; k < 5; k++) { BouzyDilate(a, b); Swap(ref a, ref b); }
-        var afterDilate = (int[])a.Clone();
-        for (int k = 0; k < 21; k++) { BouzyErode(a, b); Swap(ref a, ref b); }
-        var terr = a;
-
-        var moyo = (int[])afterDilate.Clone();
-        for (int k = 0; k < 10; k++) { BouzyErode(moyo, b); Swap(ref moyo, ref b); }
-
-        blackTerr = whiteTerr = blackMoyo = whiteMoyo = deadBlack = deadWhite = 0;
-        int liveB = 0, liveW = 0;
-        owner = new int[n];
-        for (int i = 0; i < n; i++)
-        {
-            int stone = Board[i];
-            if (stone == BLACK)
-            {
-                if (terr[i] < 0) { deadBlack++; owner[i] = WHITE; }
-                else liveB++;
-            }
-            else if (stone == WHITE)
-            {
-                if (terr[i] > 0) { deadWhite++; owner[i] = BLACK; }
-                else liveW++;
-            }
-            else
-            {
-                if (terr[i] > 0) { blackTerr++; owner[i] = BLACK; }
-                else if (terr[i] < 0) { whiteTerr++; owner[i] = WHITE; }
-                else if (moyo[i] > 0) { blackMoyo++; owner[i] = BLACK + 10; }
-                else if (moyo[i] < 0) { whiteMoyo++; owner[i] = WHITE + 10; }
-            }
-        }
-        blackMoyo = System.Math.Max(0, blackMoyo);
-        whiteMoyo = System.Math.Max(0, whiteMoyo);
-
-        blackScore = liveB + blackTerr + deadWhite;
-        whiteScore = liveW + whiteTerr + deadBlack + Komi;
+        blackScore = result.BlackScore; whiteScore = result.WhiteScore;
+        blackTerr = result.BlackTerritory; whiteTerr = result.WhiteTerritory;
+        deadBlack = result.DeadBlack; deadWhite = result.DeadWhite;
+        owner = result.Owner;
     }
-
-    void BouzyDilate(int[] src, int[] dst)
-    {
-        for (int i = 0; i < src.Length; i++)
-        {
-            int pos = 0, neg = 0;
-            foreach (int nb in Neighbors(i))
-            {
-                if (src[nb] > 0) pos++;
-                else if (src[nb] < 0) neg++;
-            }
-            int v = src[i];
-            if (v > 0) dst[i] = v + (neg == 0 ? pos : 0);
-            else if (v < 0) dst[i] = v - (pos == 0 ? neg : 0);
-            else
-            {
-                int n = 0;
-                if (neg == 0) n += pos;
-                if (pos == 0) n -= neg;
-                dst[i] = n;
-            }
-        }
-    }
-
-    void BouzyErode(int[] src, int[] dst)
-    {
-        for (int i = 0; i < src.Length; i++)
-        {
-            int nonPos = 0, nonNeg = 0;
-            foreach (int nb in Neighbors(i))
-            {
-                if (src[nb] <= 0) nonPos++;
-                if (src[nb] >= 0) nonNeg++;
-            }
-            int v = src[i];
-            if (v > 0) { v -= nonPos; if (v < 0) v = 0; }
-            else if (v < 0) { v += nonNeg; if (v > 0) v = 0; }
-            dst[i] = v;
-        }
-    }
-
-    static void Swap(ref int[] a, ref int[] b) { var t = a; a = b; b = t; }
-
     public void ConfirmEnd()
     {
         if (!string.IsNullOrEmpty(Result)) return;

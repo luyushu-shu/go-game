@@ -521,6 +521,8 @@ public sealed class GoBoardSkin : MonoBehaviour
             int ownerValue = owner[rules.Idx(x, y)];
             renderer.enabled = ownerValue == GoRules.BLACK || ownerValue == GoRules.WHITE
                 || ownerValue == GoRules.BLACK + 10 || ownerValue == GoRules.WHITE + 10;
+            int stone = rules.Board[rules.Idx(x, y)];
+            if (stone != GoRules.EMPTY && stone == ownerValue) renderer.enabled = false;
             if (ownerValue == GoRules.BLACK) renderer.color = black;
             else if (ownerValue == GoRules.WHITE) renderer.color = white;
             else if (ownerValue == GoRules.BLACK + 10) renderer.color = blackMoyo;

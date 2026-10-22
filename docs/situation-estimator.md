@@ -1,0 +1,43 @@
+# 本地形势估目算法
+
+## 查阅与取舍
+
+| 项目与实现位置 | 学到的要点 | 本次采用方式 |
+| --- | --- | --- |
+| [GNU Go influence.c](https://github.com/runningskull/gnugo/blob/master/engine/influence.c) | 势力、模样和可计分地域是不同概念；传播会受棋形阻挡，中央不能仅因附近有棋就视为地盘 | 不把距离势力圈直接计分；远离现有棋子的开放点保留中立 |
+| [Pachi ownermap.c](https://github.com/pasky/pachi/blob/master/ownermap.c) | 多次模拟统计逐点归属；棋块状态可为活、死或不明 | 统计模拟结果，疑死必须整条棋块满足高置信度条件 |
+| [Fuego GoBensonSolver](https://webdocs.cs.ualberta.ca/~games/go/fuego/fuego-doc/go-doc/classGoBensonSolver.html) | Benson 固定点算法证明无条件活棋；未证明活不等于死 | 自编棋块—空区关系及两处 vital region 的迭代删减算法，保护被证明安全的棋块 |
+| [OGS Goban.cc](https://github.com/online-go/score-estimator/blob/master/Goban.cc) | 模拟结果需要结合眼形、棋块、双活和置信度处理 | 模拟避免填真眼，允许提子，采用置信度筛选；不宣称实现了 OGS 的全部假眼及双活处理 |
+| [Sabaki influenceMap.js](https://github.com/SabakiHQ/influence/blob/master/src/influenceMap.js) | 远距离限制、孤点过滤、避免把势力当完整估目 | 归属筛选后同步去孤点；使用未经修改的原图作邻点依据，避免扫描顺序影响 |
+| [Sabaki deadstones.rs](https://github.com/SabakiHQ/deadstones/blob/master/src/deadstones.rs) | 平衡先手的模拟及整条棋链判定 | 黑白交换、8 种棋盘对称变换进行完整平衡采样 |
+| [KataGo 协议](https://github.com/lightvector/KataGo/blob/master/docs/Analysis_Engine.md) | 胜率、终局目差和逐点归属具有不同含义 | 不调用外部引擎，不把 scoreLead 拼接到另一套棋盘标记上 |
+| [Leela Zero UCTSearch.cpp](https://github.com/leela-zero/leela-zero/blob/master/src/UCTSearch.cpp)、[FastBoard.cpp](https://github.com/leela-zero/leela-zero/blob/master/src/FastBoard.cpp) | 标准分析主要报告胜率；双停后的面积计分与未终局的网络评价不同 | 区分启发式估目和最终计分；不由胜率推算目差 |
+| [goscorer](https://github.com/lightvector/goscorer) | 终局地盘计分中的双活处理有前提，死子需先正确标明 | 保留原有终局数目流程；不宣称估目等于完整死活裁决 |
+
+以上是算法思路参考。实现为独立 C# 代码，没有复制这些项目的源码，也不调用这些引擎。
+
+## 实现
+
+`GoSituationEstimator` 仅接收棋盘快照、大小和贴目，不修改实际棋局。
+
+1. 棋块与空区：构造棋块、气、单色边界空区。安全判定采用固定点删减：棋块至少具有两处 vital region；区域边界中棋块被删减后重新检查。未证明安全的棋块继续视为未定，不能仅据此判死。
+2. 模拟：默认 3 批，每批 8 种旋转/镜像 × 2 种黑白交换，共 48 次。每批使用相同的确定性随机种子完成变换组合，消除纯采样引起的颜色和方向偏差。模拟优先提子、救打吃和局部连接，禁止自杀、避免填自身真眼和无提子的自紧气，处理简单劫；每次最多 3 倍棋盘面积步数，保证有界结束。
+模拟中对原有三气及以上棋块采取暂按存活的稳定性假设，避免轻量随机政策把健康开局棋块无意义地吃掉；这不是安全证明，也可能漏掉战略性大龙攻击。\n\n3. 归属：统计模拟终点的黑白归属差。空点必须距现有棋子不超过 5 步、归属差绝对值至少 0.65，才分配给一方；其他点是中立/未定。去除没有同色邻接的孤立预测。
+4. 疑死：只有原棋块至多两气、未证明安全、且每颗棋子的对方归属差均至少 0.85 时才整块标记疑死。此判定仍可能出错，不是死活证明。
+5. 统一计分：沿用工程面积法口径。黑总分＝未判死黑子＋黑方标记空点＋疑死白子位置；白同理，再加贴目。已提子另行展示，不重复加分。每个归属点只算一次；不确定点不计分。分数和标记来自同一个不可变结果。
+6. 响应：人机对弈在后台线程计算，主线程仅查询缓存。棋盘或贴目变化后立即失效，旧快照结果不覆盖新局面；悔棋、重置及切换棋盘大小也按实际棋盘快照检查。
+
+## 限制
+
+这是轻量启发式蒙特卡洛估目，不是强棋力 AI。模拟落点政策较简单，48 次采样与置信度参数会影响结果；五步范围可能漏掉大的已围空区。复杂劫争、征子、接不归、双活和大龙死活不保证正确。模拟中的简单劫处理不等同于实际对局的完整同形禁着。Benson 仅证明一部分活棋，不覆盖所有活棋。
+
+不强求野狐的数值，也不将“通过对称性测试”当作棋力正确性的证明。
+
+## 验证内容
+
+- 空盘归属中立，只存在贴目差。
+- 9/13/19 路镜像黑白棋形，归属及整数统计镜像一致。
+- 两眼棋块得到安全证明；单眼棋块未证明安全时不能直接算死。
+- 模拟不破坏原始棋局，重复计算结果一致。
+- 所有归属点计数与总分完全相符，贴目、悔棋引起缓存正确更新。
+- 构建后截图核验卡片和棋盘，开启时继续落子及计时，关闭后恢复记录。
