@@ -332,6 +332,8 @@ public partial class GoGame
         scoreArtOutcome = StudyArtModalText(card, "ScoreOutcome", "", 37,
             new Vector2(.34f, .43f), new Vector2(.79f, .74f));
         scoreArtOutcome.fontStyle = FontStyle.Bold;
+        StudyArtModalText(card, "ScoreBasis", "按当前形势判断估目结算", 15,
+            new Vector2(.12f, .80f), new Vector2(.88f, .94f));
         StudyArtModalButton(card, "确认数目", ConfirmScoreDialog,
             new Vector2(.16f, .13f), new Vector2(.48f, .33f));
         StudyArtModalButton(card, "取消", CancelScoreDialog,

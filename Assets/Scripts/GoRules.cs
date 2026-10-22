@@ -386,6 +386,19 @@ public class GoRules
         deadBlack = result.DeadBlack; deadWhite = result.DeadWhite;
         owner = result.Owner;
     }
+    // Settle the exact cached estimate that the user has reviewed. A changed
+    // board/komi invalidates that snapshot rather than publishing a stale result.
+    public bool ConfirmSituationResult(GoSituationEstimator.Result reviewed)
+    {
+        if (Result != null || (Phase != GoPhase.Play && Phase != GoPhase.Scoring) || reviewed == null)
+            return false;
+        if (!TryGetSituation(out var current, true) || !object.ReferenceEquals(reviewed, current))
+            return false;
+        Result = GoResultFormatter.FormatScore(reviewed.BlackScore, reviewed.WhiteScore);
+        Phase = GoPhase.Over;
+        return true;
+    }
+
     public void ConfirmEnd()
     {
         if (!string.IsNullOrEmpty(Result)) return;

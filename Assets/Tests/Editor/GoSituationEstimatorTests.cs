@@ -5,6 +5,36 @@ using NUnit.Framework;
 public class GoSituationEstimatorTests
 {
     [Test]
+    public void ConfirmedScoreUsesTheReviewedSituationRatherThanRecounting()
+    {
+        var rules = new GoRules(9); rules.Play(2, 2, out _); rules.Play(6, 6, out _);
+        Assert.IsTrue(rules.TryGetSituation(out var reviewed));
+        string expected = GoResultFormatter.FormatScore(reviewed.BlackScore, reviewed.WhiteScore);
+        Assert.IsTrue(rules.ConfirmSituationResult(reviewed));
+        Assert.AreEqual(expected, rules.Result);
+        Assert.AreEqual(GoPhase.Over, rules.Phase);
+        Assert.IsFalse(rules.ConfirmSituationResult(reviewed));
+    }
+
+    [Test]
+    public void StaleReviewedScoreCannotEndAnUpdatedGame()
+    {
+        var rules = new GoRules(9); rules.TryGetSituation(out var reviewed);
+        rules.Play(2, 2, out _);
+        Assert.IsFalse(rules.ConfirmSituationResult(reviewed));
+        Assert.IsNull(rules.Result); Assert.AreEqual(GoPhase.Play, rules.Phase);
+    }
+
+    [Test]
+    public void ChangedKomiCannotConfirmAnOldScore()
+    {
+        var rules = new GoRules(9); rules.TryGetSituation(out var reviewed);
+        rules.Komi = 6.5f;
+        Assert.IsFalse(rules.ConfirmSituationResult(reviewed));
+        Assert.IsNull(rules.Result);
+    }
+
+    [Test]
     public void CornerStoneWithNoLegalEscapeIsMarkedAsOneDeadChain()
     {
         var board = new int[81]; board[0] = 1;

@@ -14,6 +14,17 @@ public static class AiArtBuild
             target = BuildTarget.StandaloneWindows64,
             options = BuildOptions.Development
         });
+        if (report.summary.result == BuildResult.Succeeded)
+        {
+            string destination = "Builds/AiUiPreview/Tools/KataGo";
+            System.IO.Directory.CreateDirectory(destination);
+            foreach (string source in System.IO.Directory.GetFiles("Tools/KataGo"))
+            {
+                string extension = System.IO.Path.GetExtension(source);
+                if (extension == ".exe" || extension == ".dll" || extension == ".gz" || extension == ".cfg" || extension == ".txt")
+                    System.IO.File.Copy(source, System.IO.Path.Combine(destination, System.IO.Path.GetFileName(source)), true);
+            }
+        }
         EditorApplication.Exit(report.summary.result == BuildResult.Succeeded ? 0 : 1);
     }
 

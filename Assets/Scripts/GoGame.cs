@@ -389,9 +389,8 @@ public partial class GoGame : MonoBehaviour
         }
         if (opponentChoice == 1 && !GoKataGo.IsAvailable())
         {
-            opponentChoice = 0;
-            if (optOpponent != null) PaintOptions(optOpponent, opponentChoice);
-            startNotice = "未找到 KataGo，已切换本地引擎";
+            Flash(GoKataGo.InstallHint());
+            return;
         }
         ClearResumedKifuSession();
         audioManager?.PlaySfx("button_confirm");
@@ -1875,13 +1874,19 @@ public partial class GoGame : MonoBehaviour
         UpdateClockPauseState();
     }
 
+    GoSituationEstimator.Result scoreDialogEstimate;
+
     void ShowScoreDialog()
     {
         if (scoreDialog == null || reviewingKifu || inMenu || rules == null
             || rules.Result != null) return;
-        rules.ComputeScore(out float blackScore, out float whiteScore,
-            out _, out _, out _, out _);
-        RefreshStudyScoreCard(blackScore, whiteScore);
+        if (aiBusy) { Flash("电脑正在落子，请稍后数目"); return; }
+        if (!rules.TryGetSituation(out scoreDialogEstimate, true))
+        {
+            Flash("正在估目，请稍后再点击数目");
+            return;
+        }
+        RefreshStudyScoreCard(scoreDialogEstimate.BlackScore, scoreDialogEstimate.WhiteScore);
         scoreDialog.SetActive(true);
         UpdateClockPauseState();
     }
@@ -1890,9 +1895,14 @@ public partial class GoGame : MonoBehaviour
     {
         if (rules == null || rules.Result != null) return;
         if (rules.Phase != GoPhase.Play && rules.Phase != GoPhase.Scoring) return;
+        if (!rules.ConfirmSituationResult(scoreDialogEstimate))
+        {
+            if (scoreDialog != null) scoreDialog.SetActive(false);
+            UpdateClockPauseState();
+            Flash("盘面或贴目已变化，请重新数目确认");
+            return;
+        }
         InvalidateAiTurn();
-        if (rules.Phase == GoPhase.Play) rules.BeginScoring();
-        rules.ConfirmEnd();
         if (scoreDialog != null) scoreDialog.SetActive(false);
         StopPlayClock();
         SaveTerminalDraft();
@@ -1902,6 +1912,7 @@ public partial class GoGame : MonoBehaviour
 
     void CancelScoreDialog()
     {
+        scoreDialogEstimate = null;
         if (scoreDialog != null) scoreDialog.SetActive(false);
         UpdateClockPauseState();
     }

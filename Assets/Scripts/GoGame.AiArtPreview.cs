@@ -53,6 +53,14 @@ public partial class GoGame
         if (markers != result.BlackTerritory + result.WhiteTerritory + result.DeadBlack + result.DeadWhite)
             throw new Exception("Rendered markers and score snapshot differ");
         if (markers == 0) throw new Exception("Local opening estimate has no visible ownership evidence");
+        ShowScoreDialog();
+        string expectedScore = GoResultFormatter.FormatScore(result.BlackScore, result.WhiteScore)
+            .Replace("方", "").Replace(" ", "");
+        if (!scoreDialog.activeSelf || scoreArtOutcome.text != expectedScore)
+            throw new Exception("Score dialog disagrees with situation snapshot");
+        CaptureStudyFrame(Path.Combine(folder, "score-confirm.png"));
+        CancelScoreDialog();
+        if (rules.Result != null) throw new Exception("Cancelling scoring ended the game");
         ToggleAiArtJudgment();
         if (aiArtJudgmentCard.gameObject.activeSelf || !aiArtRecord.gameObject.activeSelf)
             throw new Exception("Judgment toggle failed");
