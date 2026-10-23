@@ -342,7 +342,7 @@ public partial class GoGame : MonoBehaviour
         StopPlayClock();
         ClearResumedKifuSession();
         audioManager?.PlaySfx("button_confirm");
-        audioManager?.PlayMusic("bgm_study");
+        audioManager?.PlayMusic("bgm_study_song");
         inStudyMode = true;
         vsAI = false;
         boardSize = StudyBoardSize;
